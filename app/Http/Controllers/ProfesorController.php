@@ -3,40 +3,69 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Models\User;
+use App\Models\Profesor;
 use App\Services\ProfesorService;
-use App\Services\UsuarioService;
 use App\Rules\Dui;
 use App\Support\DuiFormato;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class ProfesorController extends Controller
 {
+    private const MENSAJES = [
+        'nombre.required' => 'El nombre del profesor es obligatorio.',
+        'nombre.max' => 'El nombre del profesor no debe exceder los 50 caracteres.',
+        'nombre.unique' => 'Ya existe un profesor registrado con ese nombre.',
+        'dui.required' => 'El DUI del profesor es obligatorio.',
+        'dui.unique' => 'El DUI del profesor ya está registrado.',
+        'email.required' => 'El correo es obligatorio para crear la cuenta del docente.',
+        'email.email' => 'El correo no es válido.',
+        'fecha_nacimiento.required' => 'La fecha de nacimiento del profesor es obligatoria.',
+        'fecha_nacimiento.before_or_equal' => 'El profesor debe ser mayor de edad.',
+        'telefono.required' => 'El teléfono del profesor es obligatorio.',
+        'telefono.unique' => 'El teléfono del profesor ya está registrado.',
+        'telefono.regex' => 'El teléfono debe tener 8 dígitos y empezar con 2, 6 o 7 (por ejemplo 7123-4567).',
+        'direccion.required' => 'La dirección del profesor es obligatoria.',
+        'especialidad.required' => 'La especialidad del profesor es obligatoria.',
+        'especialidad.max' => 'La especialidad no debe exceder los 50 caracteres.',
+        'fecha_contratacion.required' => 'La fecha de contratación es obligatoria.',
+        'fecha_contratacion.before_or_equal' => 'La fecha de contratación no puede ser futura.',
+        'fecha_contratacion.after' => 'La fecha de contratación debe ser posterior a la fecha de nacimiento.',
+    ];
+
     protected ProfesorService $profesorService;
 
-    protected UsuarioService $usuarioService;
-
-    public function __construct(ProfesorService $profesorService, UsuarioService $usuarioService)
+    public function __construct(ProfesorService $profesorService)
     {
         $this->profesorService = $profesorService;
-        $this->usuarioService = $usuarioService;
     }
 
-    // La cuenta vinculada debe ser DOCENTE y del mismo DUI que el perfil
-    private function verificarCuenta(array $data): void
+    // Campos que el director puede escribir al crear y al editar
+    private function reglasComunes(?int $id = null): array
     {
-        $this->usuarioService->verificarCorrespondencia(
-            User::findOrFail($data['user_id']),
-            $data['dui'],
-            User::ROL_DOCENTE
-        );
+        return [
+            'nombre' => ['required', 'string', 'max:50', Rule::unique('profesores', 'nombre')->ignore($id)],
+            'fecha_nacimiento' => 'required|date|before_or_equal:-18 years',
+            'telefono' => ['required', 'string', 'max:10', 'regex:/^[267][0-9]{3}-?[0-9]{4}$/', Rule::unique('profesores', 'telefono')->ignore($id)],
+            'direccion' => 'required|string|max:100',
+            'especialidad' => 'required|string|max:50',
+            'fecha_contratacion' => 'required|date|after:fecha_nacimiento|before_or_equal:today',
+        ];
     }
 
-    public function index()
+    private function errorValidacion(array $errores)
+    {
+        return response()->json([
+            'message' => 'Error de validación',
+            'errors' => $errores,
+        ], 422);
+    }
+
+    public function index(Request $request)
     {
         try {
-            $profesores = $this->profesorService->listar();
+            $profesores = $this->profesorService->listar($request->query('buscar'));
 
             return response()->json([
                 'profesores' => $profesores
@@ -51,49 +80,32 @@ class ProfesorController extends Controller
         }
     }
 
+    /**
+     * Registra al docente y crea su cuenta DOCENTE; la persona recibe un
+     * enlace en su correo para definir la contraseña. El código se genera solo.
+     */
     public function store(Request $request)
     {
         try {
-            $request->merge(['dui' => DuiFormato::normalizar($request->dui)]);
-
-            $data = $request->validate([
-                'nombre' => 'required|string|max:80',
-                'dui' => ['required', 'string', 'max:10', 'unique:profesores,dui', new Dui],
-                'fecha_nacimiento' => 'required|date',
-                'codigo' => 'required|string|max:15|unique:profesores,codigo',
-                'telefono' => 'required|string|max:10|unique:profesores,telefono|regex:/^[267][0-9]{3}-?[0-9]{4}$/',
-                'direccion' => 'required|string|max:100',
-                'user_id' => 'required|exists:users,id|unique:profesores,user_id',
-            ], [
-                'nombre.required' => 'El nombre del profesor es obligatorio.',
-                'dui.required' => 'El DUI del profesor es obligatorio.',
-                'dui.unique' => 'El DUI del profesor ya está registrado.',
-                'codigo.unique' => 'El código del profesor ya está registrado.',
-                'telefono.unique' => 'El teléfono del profesor ya está registrado.',
-                'direccion.required' => 'La dirección del profesor es obligatoria.',
-                'user_id.unique' => 'El usuario ya está asignado a otro profesor.',
+            $request->merge([
+                'dui' => DuiFormato::normalizar($request->dui),
+                'email' => is_string($request->email) ? mb_strtolower(trim($request->email)) : $request->email,
             ]);
 
-            $this->verificarCuenta($data);
+            $data = $request->validate(array_merge($this->reglasComunes(), [
+                'dui' => ['required', 'string', 'max:10', 'unique:profesores,dui', new Dui],
+                'email' => 'required|string|email|max:100',
+            ]), self::MENSAJES);
 
             $profesor = $this->profesorService->crear($data);
 
             return response()->json([
-                'message' => 'Profesor registrado exitosamente',
+                'message' => "Docente registrado con el código {$profesor->codigo}. Se envió un enlace a su correo para definir la contraseña.",
                 'profesor' => $profesor
             ], 201);
 
         } catch (ValidationException $e) {
-            return response()->json([
-                'message' => 'Error de validación',
-                'errors' => $e->errors()
-            ], 422);
-
-        } catch (\DomainException $e) {
-            return response()->json([
-                'message' => 'Error de validación',
-                'errors' => ['user_id' => [$e->getMessage()]],
-            ], 422);
+            return $this->errorValidacion($e->errors());
 
         } catch (\Exception $e) {
             report($e);
@@ -107,9 +119,9 @@ class ProfesorController extends Controller
     public function show(string $id)
     {
         try {
-            $profesor = $this->profesorService->obtener($id);
-
-            return response()->json($profesor);
+            return response()->json([
+                'profesor' => $this->profesorService->obtener($id),
+            ]);
 
         } catch (ModelNotFoundException $e) {
             return response()->json([
@@ -118,35 +130,32 @@ class ProfesorController extends Controller
         }
     }
 
+    /**
+     * Nombre, fecha de nacimiento, teléfono, dirección, especialidad y fecha
+     * de contratación. El código, el DUI y la cuenta no se modifican.
+     */
     public function update(Request $request, string $id)
     {
         try {
-            $request->merge(['dui' => DuiFormato::normalizar($request->dui)]);
+            $profesor = Profesor::findOrFail($id);
 
-            $data = $request->validate([
-                'nombre' => 'required|string|max:80',
-                'dui' => ['required', 'string', 'max:10', 'unique:profesores,dui,' . $id, new Dui],
-                'fecha_nacimiento' => 'required|date',
-                'codigo' => 'required|string|max:15|unique:profesores,codigo,' . $id,
-                'telefono' => 'required|string|max:10|unique:profesores,telefono,' . $id . '|regex:/^[267][0-9]{3}-?[0-9]{4}$/',
-                'direccion' => 'required|string|max:100',
-                'user_id' => 'required|exists:users,id|unique:profesores,user_id,' . $id,
-            ], [
-                'nombre.required' => 'El nombre del profesor es obligatorio.',
-                'nombre.max' => 'El nombre del profesor no debe exceder los 80 caracteres.',
-                'dui.required' => 'El DUI del profesor es obligatorio.',
-                'dui.unique' => 'El DUI del profesor ya está registrado.',
-                'fecha_nacimiento.required' => 'La fecha de nacimiento del profesor es obligatoria.',
-                'codigo.max' => 'El código del profesor no debe exceder los 15 caracteres.',
-                'codigo.unique' => 'El código del profesor ya está registrado.',
-                'telefono.unique' => 'El teléfono del profesor ya está registrado.',
-                'direccion.required' => 'La dirección del profesor es obligatoria.',
-                'user_id.unique' => 'El usuario ya está asignado a otro profesor.',
-            ]);
+            $inmutables = [];
+            if ($request->filled('codigo') && $request->codigo !== $profesor->codigo) {
+                $inmutables['codigo'] = ['El código del profesor no se puede modificar.'];
+            }
+            if ($request->filled('dui') && DuiFormato::normalizar($request->dui) !== $profesor->dui) {
+                $inmutables['dui'] = ['El DUI del profesor no se puede modificar.'];
+            }
+            if ($request->filled('user_id') && (int) $request->user_id !== (int) $profesor->user_id) {
+                $inmutables['user_id'] = ['La cuenta del profesor no se puede cambiar.'];
+            }
+            if ($inmutables) {
+                return $this->errorValidacion($inmutables);
+            }
 
-            $this->verificarCuenta($data);
+            $data = $request->validate($this->reglasComunes($profesor->id), self::MENSAJES);
 
-            $profesor = $this->profesorService->actualizar($id, $data);
+            $profesor = $this->profesorService->actualizar($profesor->id, $data);
 
             return response()->json([
                 'message' => 'Profesor actualizado exitosamente',
@@ -154,21 +163,12 @@ class ProfesorController extends Controller
             ], 200);
 
         } catch (ValidationException $e) {
-            return response()->json([
-                'message' => 'Error de validación',
-                'errors' => $e->errors()
-            ], 422);
+            return $this->errorValidacion($e->errors());
 
         } catch (ModelNotFoundException $e) {
             return response()->json([
                 'message' => 'Error: profesor no encontrado',
             ], 404);
-
-        } catch (\DomainException $e) {
-            return response()->json([
-                'message' => 'Error de validación',
-                'errors' => ['user_id' => [$e->getMessage()]],
-            ], 422);
 
         } catch (\Exception $e) {
             report($e);
@@ -186,12 +186,12 @@ class ProfesorController extends Controller
 
             if (!$eliminado) {
                 return response()->json([
-                    'message' => 'No se puede eliminar el profesor porque tiene secciones o asignaciones asociadas.'
-                ], 400);
+                    'message' => 'No se puede eliminar el profesor porque tiene secciones o asignaciones asociadas. Desactive su cuenta en su lugar.'
+                ], 409);
             }
 
             return response()->json([
-                'message' => 'Profesor eliminado exitosamente'
+                'message' => 'Profesor y su cuenta eliminados exitosamente'
             ], 200);
 
         } catch (ModelNotFoundException $e) {

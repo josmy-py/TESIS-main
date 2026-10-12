@@ -16,8 +16,17 @@ class Profesor extends Model
         'telefono',
         'dui',
         'direccion',
+        'especialidad',
+        'fecha_contratacion',
         'user_id',
     ];
+
+    protected $casts = [
+        'fecha_nacimiento' => 'date:Y-m-d',
+        'fecha_contratacion' => 'date:Y-m-d',
+    ];
+
+    public const PREFIJO_CODIGO = 'PROF-';
 
     public function user()
     {

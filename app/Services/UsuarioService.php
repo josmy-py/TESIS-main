@@ -76,7 +76,9 @@ class UsuarioService
             return $user;
         });
 
-        $this->enviarEnlaceContrasena($user, true);
+        // Si la cuenta se crea dentro de otra transacción (perfil del docente
+        // en M3), el correo sale solo cuando todo quedó guardado.
+        DB::afterCommit(fn () => $this->enviarEnlaceContrasena($user, true));
 
         return $user;
     }

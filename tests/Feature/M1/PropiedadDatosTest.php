@@ -128,18 +128,20 @@ class PropiedadDatosTest extends TestCase
         $this->como($this->a)->getJson('/api/profesores')->assertStatus(403);
     }
 
+    // Desde M3 la cuenta la elige el sistema por DUI: un user_id enviado por el cliente se ignora
     public function test_perfil_docente_exige_cuenta_docente_con_mismo_dui(): void
     {
+        \Illuminate\Support\Facades\Notification::fake();
         $director = $this->usuario(User::ROL_DIRECTOR);
-        $docente = $this->usuario(User::ROL_DOCENTE, ['dui' => '00016297-5']);
-        $datos = ['nombre' => 'Prof', 'dui' => '000162975', 'fecha_nacimiento' => '1990-01-01', 'codigo' => 'P001',
-            'telefono' => '7123-4567', 'direccion' => 'X'];
+        $docente = $this->usuario(User::ROL_DOCENTE, ['dui' => '00016297-5', 'email' => 'prof@example.com']);
+        $datos = ['nombre' => 'Prof', 'dui' => '000162975', 'fecha_nacimiento' => '1990-01-01',
+            'telefono' => '7123-4567', 'direccion' => 'X', 'especialidad' => 'Lenguaje',
+            'fecha_contratacion' => '2015-01-10', 'email' => 'prof@example.com'];
 
+        $this->como($director)->postJson('/api/profesores', array_merge($datos, ['dui' => $this->a->dui]))
+            ->assertStatus(422)->assertJsonValidationErrors('dui');
         $this->como($director)->postJson('/api/profesores', $datos + ['user_id' => $this->a->id])
-            ->assertStatus(422)->assertJsonValidationErrors('user_id');
-        $this->como($director)->postJson('/api/profesores', array_merge($datos, ['dui' => '00000003-4', 'user_id' => $docente->id]))
-            ->assertStatus(422)->assertJsonValidationErrors('user_id');
-        $this->como($director)->postJson('/api/profesores', $datos + ['user_id' => $docente->id])
-            ->assertCreated()->assertJsonPath('profesor.dui', '00016297-5');
+            ->assertCreated()->assertJsonPath('profesor.dui', '00016297-5')
+            ->assertJsonPath('profesor.user_id', $docente->id);
     }
 }
