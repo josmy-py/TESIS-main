@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\AnioLectivoController;
 use App\Http\Controllers\AsignacionController;
 use App\Http\Controllers\AsignaturaController;
 use App\Http\Controllers\GradoController;
@@ -13,6 +14,7 @@ use App\Http\Controllers\EstudianteController;
 use App\Http\Controllers\ProfesorController;
 use App\Http\Controllers\MatriculaController;
 use App\Http\Controllers\PadreController;
+use App\Http\Controllers\PeriodoEscolarController;
 use App\Http\Controllers\ParienteController;
 use App\Http\Controllers\UbicacionController;
 use App\Http\Controllers\UsuarioController;
@@ -54,6 +56,13 @@ Route::middleware(['auth:api', 'activo'])->group(function () {
     Route::get('municipios/{municipio}/distritos', [UbicacionController::class, 'distritosDeMunicipio']);
     Route::get('distritos', [UbicacionController::class, 'distritos']);
     Route::get('distritos/{id}', [UbicacionController::class, 'distrito']);
+
+    // Calendario escolar (M2.2): consultas para cualquier cuenta con sesión
+    Route::get('anios-lectivos/actual', [AnioLectivoController::class, 'actual']);
+    Route::get('anios-lectivos', [AnioLectivoController::class, 'index']);
+    Route::get('anios-lectivos/{id}', [AnioLectivoController::class, 'show'])->whereNumber('id');
+    Route::get('anios-lectivos/{id}/periodos', [AnioLectivoController::class, 'periodos'])->whereNumber('id');
+    Route::get('periodos-escolares/{id}', [PeriodoEscolarController::class, 'show'])->whereNumber('id');
 });
 
 // 🟢 1. Rutas accesibles para Encargados y Administradores
@@ -94,6 +103,21 @@ Route::middleware(['auth:api', 'activo', 'role:DIRECTOR'])->group(function () {
     Route::apiResource('especialidades', EspecialidadController::class)->only(['store', 'update', 'destroy']);
     Route::apiResource('discapacidades', DiscapacidadController::class)->only(['store', 'update', 'destroy']);
     Route::apiResource('enfermedades', EnfermedadController::class)->only(['store', 'update', 'destroy']);
+
+    // Calendario escolar (M2.2): administración y transiciones de estado
+    Route::get('anios-lectivos/diagnostico', [AnioLectivoController::class, 'diagnostico']);
+    Route::post('anios-lectivos', [AnioLectivoController::class, 'store']);
+    Route::put('anios-lectivos/{id}', [AnioLectivoController::class, 'update'])->whereNumber('id');
+    Route::delete('anios-lectivos/{id}', [AnioLectivoController::class, 'destroy'])->whereNumber('id');
+    Route::post('anios-lectivos/{id}/activar', [AnioLectivoController::class, 'activar'])->whereNumber('id');
+    Route::post('anios-lectivos/{id}/cerrar', [AnioLectivoController::class, 'cerrar'])->whereNumber('id');
+    Route::post('anios-lectivos/{id}/periodos', [AnioLectivoController::class, 'agregarPeriodo'])->whereNumber('id');
+    Route::get('anios-lectivos/{id}/historial', [AnioLectivoController::class, 'historial'])->whereNumber('id');
+    Route::put('periodos-escolares/{id}', [PeriodoEscolarController::class, 'update'])->whereNumber('id');
+    Route::delete('periodos-escolares/{id}', [PeriodoEscolarController::class, 'destroy'])->whereNumber('id');
+    Route::post('periodos-escolares/{id}/abrir', [PeriodoEscolarController::class, 'abrir'])->whereNumber('id');
+    Route::post('periodos-escolares/{id}/cerrar', [PeriodoEscolarController::class, 'cerrar'])->whereNumber('id');
+    Route::post('periodos-escolares/{id}/reabrir', [PeriodoEscolarController::class, 'reabrir'])->whereNumber('id');
     Route::apiResource('secciones', SeccionController::class);
     Route::apiResource('profesores', ProfesorController::class);
     Route::apiResource('asignaciones', AsignacionController::class)->except(['update']);

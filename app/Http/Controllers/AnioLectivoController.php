@@ -1,0 +1,183 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Services\CalendarioService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\QueryException;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+
+/**
+ * Años lectivos (M2.2). Consultas para cuentas con sesión; escrituras solo
+ * DIRECTOR (lo exigen las rutas). 422 = datos inválidos, 409 = la operación
+ * no es posible en el estado actual.
+ */
+class AnioLectivoController extends Controller
+{
+    private const MENSAJES = [
+        'nombre.required' => 'El nombre del año lectivo es obligatorio.',
+        'nombre.max' => 'El nombre no debe exceder los 50 caracteres.',
+        'nombre.unique' => 'Ya existe un año lectivo con ese nombre.',
+        'fecha_inicio.required' => 'La fecha de inicio es obligatoria.',
+        'fecha_inicio.date' => 'La fecha de inicio no es válida.',
+        'fecha_fin.required' => 'La fecha de fin es obligatoria.',
+        'fecha_fin.date' => 'La fecha de fin no es válida.',
+        'fecha_fin.after' => 'La fecha de fin debe ser posterior a la fecha de inicio.',
+        'cantidad_periodos.integer' => 'La cantidad de periodos debe ser un número entero.',
+        'cantidad_periodos.min' => 'Debe haber al menos un periodo.',
+        'cantidad_periodos.max' => 'Un año lectivo admite como máximo '.CalendarioService::MAX_PERIODOS.' periodos.',
+    ];
+
+    public function __construct(private CalendarioService $calendario)
+    {
+    }
+
+    public function index()
+    {
+        return $this->responder(fn () => response()->json(['anios_lectivos' => $this->calendario->listar()]), 'Error al obtener los años lectivos');
+    }
+
+    // Año activo y periodo abierto (para paneles y formularios)
+    public function actual()
+    {
+        return $this->responder(function () {
+            [$anio, $periodo] = $this->calendario->actual();
+
+            return response()->json([
+                'anio_lectivo' => $anio,
+                'periodo_abierto' => $periodo,
+                'message' => match (true) {
+                    $anio === null => 'No hay un año lectivo activo.',
+                    $periodo === null => 'El año lectivo activo no tiene un periodo abierto.',
+                    default => null,
+                },
+            ]);
+        }, 'Error al obtener el año lectivo actual');
+    }
+
+    public function show(string $id)
+    {
+        return $this->responder(fn () => response()->json(['anio_lectivo' => $this->calendario->obtener($id)]), 'Error al obtener el año lectivo');
+    }
+
+    public function periodos(string $id)
+    {
+        return $this->responder(fn () => response()->json(['periodos' => $this->calendario->periodos($id)]), 'Error al obtener los periodos');
+    }
+
+    public function historial(string $id)
+    {
+        return $this->responder(fn () => response()->json(['historial' => $this->calendario->historial($id)]), 'Error al obtener el historial');
+    }
+
+    public function diagnostico()
+    {
+        return $this->responder(fn () => response()->json(['diagnostico' => $this->calendario->diagnostico()]), 'Error al generar el diagnóstico');
+    }
+
+    public function store(Request $request)
+    {
+        return $this->responder(function () use ($request) {
+            $datos = $request->validate([
+                'nombre' => 'required|string|max:50|unique:anios_lectivos,nombre',
+                'fecha_inicio' => 'required|date',
+                'fecha_fin' => 'required|date|after:fecha_inicio',
+                'cantidad_periodos' => 'nullable|integer|min:1|max:'.CalendarioService::MAX_PERIODOS,
+            ], self::MENSAJES);
+
+            return response()->json([
+                'message' => 'Año lectivo creado exitosamente',
+                'anio_lectivo' => $this->calendario->crear($datos),
+            ], 201);
+        }, 'Error al crear el año lectivo');
+    }
+
+    public function update(Request $request, string $id)
+    {
+        return $this->responder(function () use ($request, $id) {
+            $this->calendario->obtener($id);
+
+            $datos = $request->validate([
+                'nombre' => ['required', 'string', 'max:50', Rule::unique('anios_lectivos', 'nombre')->ignore($id)],
+                'fecha_inicio' => 'required|date',
+                'fecha_fin' => 'required|date|after:fecha_inicio',
+            ], self::MENSAJES);
+
+            return response()->json([
+                'message' => 'Año lectivo actualizado exitosamente',
+                'anio_lectivo' => $this->calendario->actualizar($id, $datos),
+            ]);
+        }, 'Error al actualizar el año lectivo');
+    }
+
+    public function activar(string $id)
+    {
+        return $this->responder(fn () => response()->json([
+            'message' => 'Año lectivo activado',
+            'anio_lectivo' => $this->calendario->activar($id),
+        ]), 'Error al activar el año lectivo');
+    }
+
+    public function cerrar(string $id)
+    {
+        return $this->responder(fn () => response()->json([
+            'message' => 'Año lectivo cerrado',
+            'anio_lectivo' => $this->calendario->cerrar($id),
+        ]), 'Error al cerrar el año lectivo');
+    }
+
+    public function destroy(string $id)
+    {
+        return $this->responder(function () use ($id) {
+            $this->calendario->eliminar($id);
+
+            return response()->json(['message' => 'Año lectivo eliminado']);
+        }, 'Error al eliminar el año lectivo');
+    }
+
+    public function agregarPeriodo(Request $request, string $id)
+    {
+        return $this->responder(function () use ($request, $id) {
+            $this->calendario->obtener($id);
+
+            $datos = $request->validate([
+                'nombre' => 'nullable|string|max:50',
+                'fecha_inicio' => 'nullable|date',
+                'fecha_fin' => 'nullable|date',
+            ]);
+
+            return response()->json([
+                'message' => 'Periodo agregado',
+                'periodo' => $this->calendario->agregarPeriodo($id, $datos),
+            ], 201);
+        }, 'Error al agregar el periodo');
+    }
+
+    private function responder(callable $accion, string $error)
+    {
+        try {
+            return $accion();
+        } catch (ValidationException $e) {
+            return response()->json(['message' => 'Error de validación', 'errors' => $e->errors()], 422);
+        } catch (ModelNotFoundException $e) {
+            return response()->json(['message' => 'Año lectivo no encontrado'], 404);
+        } catch (\DomainException $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
+        } catch (QueryException $e) {
+            report($e);
+
+            // Índices únicos de año activo o periodo abierto (peticiones simultáneas)
+            if ((string) $e->getCode() === '23000' || (string) $e->getCode() === '23505') {
+                return response()->json(['message' => 'La operación entra en conflicto con el estado actual. Actualice e intente de nuevo.'], 409);
+            }
+
+            return response()->json(['message' => $error], 500);
+        } catch (\Exception $e) {
+            report($e);
+
+            return response()->json(['message' => $error], 500);
+        }
+    }
+}

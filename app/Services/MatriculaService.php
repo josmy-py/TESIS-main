@@ -8,6 +8,7 @@ use App\Models\Matricula;
 use App\Models\Seccion;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 class MatriculaService
 {
@@ -75,6 +76,19 @@ class MatriculaService
 
     public function crear(array $datos, $foto = null, $documento = null)
     {
+        // M2.2: la matrícula pertenece a un año lectivo (el indicado o el activo)
+        // y, si trae sección, debe ser del mismo año. Se valida antes de guardar archivos.
+        $anioLectivo = $this->calendario()->anioParaMatricula($datos['anio_lectivo_id'] ?? null);
+
+        if (! empty($datos['seccion_id'])) {
+            $seccion = Seccion::findOrFail($datos['seccion_id']);
+            if ($seccion->anio_lectivo_id !== $anioLectivo->id) {
+                throw ValidationException::withMessages([
+                    'seccion_id' => 'La sección no pertenece al año lectivo de la matrícula.',
+                ]);
+            }
+        }
+
         DB::beginTransaction();
 
         try {
@@ -101,7 +115,9 @@ class MatriculaService
 
             $matricula = Matricula::create([
                 'ingreso' => $datos['ingreso'],
-                'anio' => (string) now()->year,
+                // Campo anterior, conservado durante la transición
+                'anio' => $anioLectivo->anioCalendario(),
+                'anio_lectivo_id' => $anioLectivo->id,
                 'estado' => 'pendiente',
                 'foto' => $rutaF,
                 'documento' => $rutaDocumento,
@@ -375,20 +391,9 @@ class MatriculaService
         ];
     }
 
-    public function verificarDisponibilidadSeccion($gradoId, $turno)
+    public function verificarDisponibilidadSeccion($gradoId, $turno, $anioLectivoId = null)
     {
-        $anioActual = date('Y');
-
-        $secciones = Seccion::where('grado_id', $gradoId)
-            ->where('turno', $turno)
-            ->where('anio', $anioActual)
-            ->withCount([
-                'matriculas' => function ($query) use ($anioActual) {
-                    $query->where('anio', $anioActual)
-                        ->whereIn('estado', ['pendiente', 'aprobado']);
-                },
-            ])
-            ->get();
+        $secciones = $this->seccionesDelAnio($gradoId, $turno, $anioLectivoId);
 
         if ($secciones->isEmpty()) {
             return [
@@ -417,20 +422,9 @@ class MatriculaService
         ];
     }
 
-    public function obtenerSeccionesDisponibles($gradoId, $turno)
+    public function obtenerSeccionesDisponibles($gradoId, $turno, $anioLectivoId = null)
     {
-        $anioActual = date('Y');
-
-        $secciones = Seccion::where('grado_id', $gradoId)
-            ->where('turno', $turno)
-            ->where('anio', $anioActual)
-            ->withCount([
-                'matriculas' => function ($query) use ($anioActual) {
-                    $query->where('anio', $anioActual)
-                        ->whereIn('estado', ['pendiente', 'aprobado']);
-                },
-            ])
-            ->get();
+        $secciones = $this->seccionesDelAnio($gradoId, $turno, $anioLectivoId);
 
         return $secciones
             ->map(function ($seccion) {
@@ -450,11 +444,41 @@ class MatriculaService
             ->values();
     }
 
-    public function verificarDuplicidad($estudianteId, $anio)
+    public function verificarDuplicidad($estudianteId, $anio, $anioLectivoId = null)
     {
         return Matricula::where('estudiante_id', $estudianteId)
-            ->where('anio', $anio)
+            ->when(
+                $anioLectivoId,
+                fn ($query) => $query->where('anio_lectivo_id', $anioLectivoId),
+                fn ($query) => $query->where('anio', $anio)
+            )
             ->whereIn('estado', ['pendiente', 'aprobado'])
             ->exists();
+    }
+
+    /**
+     * M2.2: secciones del grado y turno en el año lectivo indicado (o el activo,
+     * en lugar del año del reloj del servidor), con sus matrículas vigentes de
+     * ese mismo año.
+     */
+    private function seccionesDelAnio($gradoId, $turno, $anioLectivoId = null)
+    {
+        $anioLectivo = $this->calendario()->anioParaMatricula($anioLectivoId);
+
+        return Seccion::where('grado_id', $gradoId)
+            ->where('turno', $turno)
+            ->where('anio_lectivo_id', $anioLectivo->id)
+            ->withCount([
+                'matriculas' => function ($query) use ($anioLectivo) {
+                    $query->where('anio_lectivo_id', $anioLectivo->id)
+                        ->whereIn('estado', ['pendiente', 'aprobado']);
+                },
+            ])
+            ->get();
+    }
+
+    private function calendario(): CalendarioService
+    {
+        return app(CalendarioService::class);
     }
 }

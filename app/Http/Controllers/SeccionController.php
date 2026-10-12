@@ -41,7 +41,9 @@ class SeccionController extends Controller
                 'nombre' => 'required|string|max:50',
                 'capacidad' => 'required|integer',
                 'turno' => 'required|in:matutino,vespertino',
-                'anio' => 'required|integer|min:2025|max:2100',
+                // M2.2: se indica el año lectivo; "anio" se acepta durante la transición
+                'anio' => 'required_without:anio_lectivo_id|nullable|integer|min:2025|max:2100',
+                'anio_lectivo_id' => 'nullable|integer',
                 'grado_id' => 'required|exists:grados,id',
                 'profesor_id' => 'required|exists:profesores,id',
             ], [
@@ -102,7 +104,9 @@ class SeccionController extends Controller
                 'nombre' => 'required|string|max:50',
                 'capacidad' => 'required|integer',
                 'turno' => 'required|in:matutino,vespertino',
-                'anio' => 'required|integer|min:2025|max:2100',
+                // M2.2: se indica el año lectivo; "anio" se acepta durante la transición
+                'anio' => 'required_without:anio_lectivo_id|nullable|integer|min:2025|max:2100',
+                'anio_lectivo_id' => 'nullable|integer',
                 'grado_id' => 'required|exists:grados,id',
                 'profesor_id' => 'required|exists:profesores,id',
             ], [

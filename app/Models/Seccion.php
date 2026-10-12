@@ -13,6 +13,7 @@ class Seccion extends Model
         'capacidad',
         'turno',
         'anio',
+        'anio_lectivo_id',
         'grado_id',
         'profesor_id',
     ];
@@ -35,5 +36,10 @@ class Seccion extends Model
     public function asignaciones()
     {
         return $this->hasMany(Asignacion::class);
+    }
+
+    public function anioLectivo()
+    {
+        return $this->belongsTo(AnioLectivo::class, 'anio_lectivo_id');
     }
 }

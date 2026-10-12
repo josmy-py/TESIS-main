@@ -56,6 +56,7 @@ class MatriculaController extends Controller
                 'foto' => 'required|image|mimes:jpeg,png,jpg|max:2048',
                 'documento' => 'nullable|file|mimes:pdf,jpeg,png,jpg|max:2048',
                 'es_trasladado' => 'required|boolean',
+                'anio_lectivo_id' => 'nullable|integer',
             ], [
                 'ingreso.required' => 'El tipo de ingreso es obligatorio.',
                 'estudiante_id.required' => 'El estudiante es obligatorio.',
@@ -345,12 +346,14 @@ class MatriculaController extends Controller
             $request->validate([
                 'grado_id' => 'required|exists:grados,id',
                 'turno' => 'required|in:matutino,vespertino',
+                'anio_lectivo_id' => 'nullable|integer',
             ]);
 
             $resultado = $this->matriculaService
                 ->verificarDisponibilidadSeccion(
                     $request->grado_id,
-                    $request->turno
+                    $request->turno,
+                    $request->anio_lectivo_id
                 );
 
             return response()->json($resultado, 200);
@@ -376,12 +379,14 @@ class MatriculaController extends Controller
             $request->validate([
                 'grado_id' => 'required|exists:grados,id',
                 'turno' => 'required|in:matutino,vespertino',
+                'anio_lectivo_id' => 'nullable|integer',
             ]);
 
             $secciones = $this->matriculaService
                 ->obtenerSeccionesDisponibles(
                     $request->grado_id,
-                    $request->turno
+                    $request->turno,
+                    $request->anio_lectivo_id
                 );
 
             return response()->json([
@@ -408,7 +413,8 @@ class MatriculaController extends Controller
         try {
             $request->validate([
                 'estudiante_id' => 'required|exists:estudiantes,id',
-                'anio' => 'required|string|size:4',
+                'anio' => 'required_without:anio_lectivo_id|nullable|string|size:4',
+                'anio_lectivo_id' => 'nullable|integer|exists:anios_lectivos,id',
             ]);
 
             $this->matriculaService->estudiantePropio($request->estudiante_id, $this->propietarioId());
@@ -416,7 +422,8 @@ class MatriculaController extends Controller
             $duplicidad = $this->matriculaService
                 ->verificarDuplicidad(
                     $request->estudiante_id,
-                    $request->anio
+                    $request->anio,
+                    $request->anio_lectivo_id
                 );
 
             if ($duplicidad) {

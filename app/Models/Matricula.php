@@ -11,6 +11,7 @@ class Matricula extends Model
     protected $fillable = [
         'ingreso',
         'anio',
+        'anio_lectivo_id',
         'estado',
         'foto',
         'documento',
@@ -78,5 +79,10 @@ class Matricula extends Model
     public function calificaciones()
     {
         return $this->hasMany(Calificacion::class);
+    }
+
+    public function anioLectivo()
+    {
+        return $this->belongsTo(AnioLectivo::class, 'anio_lectivo_id');
     }
 }
