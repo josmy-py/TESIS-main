@@ -16,17 +16,11 @@ class PeriodoEscolar extends Model
         'nombre',
         'nivel',
         'anio_lectivo_id',
-        'numero',
-        'fecha_inicio',
-        'fecha_fin',
     ];
 
-    protected $hidden = ['abierto_en'];
-
+    // nivel: número del periodo dentro del año lectivo (1, 2, 3...)
     protected $casts = [
-        'numero' => 'integer',
-        'fecha_inicio' => 'date:Y-m-d',
-        'fecha_fin' => 'date:Y-m-d',
+        'nivel' => 'integer',
     ];
 
     public function anioLectivo()
@@ -47,11 +41,6 @@ class PeriodoEscolar extends Model
     public function conductas()
     {
         return $this->hasMany(Conducta::class);
-    }
-
-    public function fechasValidas(): bool
-    {
-        return $this->fecha_inicio !== null && $this->fecha_fin !== null && $this->fecha_inicio->lt($this->fecha_fin);
     }
 
     // Boletas, evaluaciones o conductas registradas en el periodo

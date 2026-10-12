@@ -116,7 +116,6 @@ class MatriculaService
             $matricula = Matricula::create([
                 'ingreso' => $datos['ingreso'],
                 // Campo anterior, conservado durante la transición
-                'anio' => $anioLectivo->anioCalendario(),
                 'anio_lectivo_id' => $anioLectivo->id,
                 'estado' => 'pendiente',
                 'foto' => $rutaF,
@@ -262,7 +261,7 @@ class MatriculaService
         }
 
         $ultimaMatricula = $estudiante->matriculas
-            ->sortByDesc('anio')
+            ->sortByDesc('id')
             ->first();
 
         return [
@@ -326,9 +325,9 @@ class MatriculaService
 
         $ultimoGrado = $ultimaMatricula->seccion->grado;
 
-        // notaFinal es hasMany (tabla notas_anuales): se toma el registro de cierre más reciente
+        // notaFinal es hasMany (tabla notas_anuales): se toma el registro más reciente
         $notaAnual = $ultimaMatricula->notaFinal
-            ->sortByDesc('fecha_cierre')
+            ->sortByDesc('id')
             ->first();
 
         if (! $notaAnual) {
@@ -355,12 +354,12 @@ class MatriculaService
             ];
         }
 
-        // M2.1.1: el grado siguiente se determina por el orden académico, no por el id
+        // El grado siguiente se determina por el orden académico del catálogo oficial, no por el id
         if (! $ultimoGrado || $ultimoGrado->orden === null) {
             return [
                 'permitido' => false,
                 'status' => 422,
-                'message' => 'No se puede determinar el grado siguiente: el grado anterior no tiene orden académico. El director debe completarlo.',
+                'message' => 'No se puede determinar el grado siguiente: el grado anterior no pertenece al catálogo oficial de grados.',
             ];
         }
 
@@ -444,14 +443,12 @@ class MatriculaService
             ->values();
     }
 
-    public function verificarDuplicidad($estudianteId, $anio, $anioLectivoId = null)
+    public function verificarDuplicidad($estudianteId, $anioLectivoId = null)
     {
+        $anioLectivo = $this->calendario()->anioParaMatricula($anioLectivoId);
+
         return Matricula::where('estudiante_id', $estudianteId)
-            ->when(
-                $anioLectivoId,
-                fn ($query) => $query->where('anio_lectivo_id', $anioLectivoId),
-                fn ($query) => $query->where('anio', $anio)
-            )
+            ->where('anio_lectivo_id', $anioLectivo->id)
             ->whereIn('estado', ['pendiente', 'aprobado'])
             ->exists();
     }

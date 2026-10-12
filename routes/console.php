@@ -24,19 +24,21 @@ Artisan::command('siga:usuarios-sin-dui', function () {
     $this->warn($usuarios->count().' cuenta(s) requieren intervención manual.');
 })->purpose('Lista las cuentas sin nombre o DUI que requieren intervención');
 
-// M2.1.1: grados sin orden académico. Sin orden no se puede calcular la promoción
-// de reingreso; el director lo completa al editar el grado.
+// Grados fuera del catálogo oficial (App\Support\CatalogoGrados). Sin orden no se
+// puede calcular la promoción de reingreso; se corrige con el nombre oficial.
 Artisan::command('siga:grados-sin-orden', function () {
-    $grados = \App\Models\Grado::whereNull('orden')->orderBy('nombre')->get();
+    $grados = \App\Models\Grado::ordenAcademico()->filter(fn ($g) => $g->orden === null)->values();
 
     if ($grados->isEmpty()) {
-        $this->info('Todos los grados tienen orden académico.');
+        $this->info('Todos los grados pertenecen al catálogo oficial.');
         return;
     }
 
-    $this->table(['id', 'nombre', 'secciones'], $grados->map(fn ($g) => [$g->id, $g->nombre, $g->secciones()->count()]));
-    $this->warn($grados->count().' grado(s) requieren que el director asigne el orden académico.');
-})->purpose('Lista los grados sin orden académico que requieren intervención');
+    $this->table(['id', 'nombre', 'nombre oficial equivalente', 'secciones'], $grados->map(fn ($g) => [
+        $g->id, $g->nombre, \App\Support\CatalogoGrados::equivalente($g->nombre) ?? '(ninguno)', $g->secciones()->count(),
+    ]));
+    $this->warn($grados->count().' grado(s) fuera del catálogo oficial (no participan en la promoción de reingreso).');
+})->purpose('Lista los grados que no pertenecen al catálogo oficial');
 
 // M2.2: datos anteriores al calendario escolar que requieren revisión manual
 // (años sin fechas, periodos sin año o número, secciones y matrículas sin año
@@ -45,13 +47,11 @@ Artisan::command('siga:diagnostico-calendario', function () {
     $secciones = [
         'anios_sin_fechas' => ['Años lectivos sin fechas (no pueden activarse)', ['id', 'nombre', 'estado']],
         'anios_sin_periodos' => ['Años lectivos sin periodos', ['id', 'nombre', 'estado']],
-        'periodos_sin_anio' => ['Periodos anteriores sin año lectivo o sin número (se conservan nombre y nivel)', ['id', 'nombre', 'nivel', 'anio_lectivo_id', 'numero']],
-        'secciones_sin_anio' => ['Secciones sin año lectivo', ['id', 'nombre', 'anio', 'grado_id']],
-        'matriculas_sin_anio' => ['Matrículas sin año lectivo (año inválido o distinto al de su sección)', ['id', 'anio', 'estudiante_id', 'seccion_id']],
-        'matriculas_con_otro_anio_que_su_seccion' => ['Matrículas con un año lectivo distinto al de su sección', ['id', 'anio', 'anio_lectivo_id', 'seccion_id']],
-        'anios_solo_en_asignaciones' => ['Años que solo aparecen en asignaciones (sin sección ni matrícula de ese año)', ['anio', 'anio_lectivo_id', 'estado', 'asignaciones']],
-        'asignaciones_sin_anio_lectivo' => ['Asignaciones cuyo año no corresponde a ningún año lectivo', ['id', 'anio', 'seccion_id']],
-        'asignaciones_con_otro_anio_que_su_seccion' => ['Asignaciones cuyo año no coincide con el de su sección', ['id', 'anio', 'seccion_id', 'anio_seccion']],
+        'periodos_sin_anio' => ['Periodos anteriores sin año lectivo o sin número (nivel)', ['id', 'nombre', 'nivel', 'anio_lectivo_id']],
+        'secciones_sin_anio' => ['Secciones sin año lectivo', ['id', 'nombre', 'grado_id']],
+        'matriculas_sin_anio' => ['Matrículas sin año lectivo', ['id', 'estudiante_id', 'seccion_id']],
+        'matriculas_con_otro_anio_que_su_seccion' => ['Matrículas con un año lectivo distinto al de su sección', ['id', 'anio_lectivo_id', 'seccion_id']],
+        'padres_sin_estudiantes' => ['Padres sin estudiantes vinculados (solo el director puede vincularlos)', ['id', 'nombre', 'dui']],
     ];
 
     $diagnostico = app(\App\Services\CalendarioService::class)->diagnostico();

@@ -39,28 +39,34 @@ class CierreSeguridadTest extends TestCase
         ]);
     }
 
-    // Un padre recién registrado (sin cuenta ni estudiantes) solo lo vincula quien lo registró
-    public function test_padre_sin_estudiantes_no_lo_vincula_otro_encargado(): void
+    // El encargado registra al padre ya vinculado a su estudiante (tabla parientes); otro encargado no lo ve
+    public function test_padre_se_registra_vinculado_y_otro_encargado_no_lo_usa(): void
     {
         $deA = $this->estudianteDe($this->a, $this->catalogos['distrito']);
         $deB = $this->estudianteDe($this->b, $this->catalogos['distrito']);
 
-        $respuesta = $this->como($this->a)->postJson('/api/padres', ['nombre' => 'Madre de A', 'dui' => '00000003-4', 'es_encargado' => false])
-            ->assertCreated()->assertJsonMissingPath('padre.registrado_por');
-        $madre = $respuesta->json('padre.id');
-        $this->assertSame($this->a->id, Padre::find($madre)->registrado_por);
+        // Sin estudiante no se registra (no quedan padres sin dueño)
+        $this->como($this->a)->postJson('/api/padres', ['nombre' => 'Madre de A', 'dui' => '00000003-4', 'es_encargado' => false])
+            ->assertStatus(422)->assertJsonValidationErrors('estudiante_id');
+
+        // Con un estudiante ajeno responde como no encontrado
+        $this->como($this->a)->postJson('/api/padres', ['nombre' => 'Madre de A', 'dui' => '00000003-4', 'es_encargado' => false,
+            'estudiante_id' => $deB->id, 'parentesco' => 'Madre'])->assertNotFound();
+        $this->assertSame(0, Padre::count());
+
+        $madre = $this->como($this->a)->postJson('/api/padres', ['nombre' => 'Madre de A', 'dui' => '00000003-4', 'es_encargado' => false,
+            'estudiante_id' => $deA->id, 'parentesco' => 'Madre'])->assertCreated()->json('padre.id');
+        $this->assertSame(1, DB::table('parientes')->where('padre_id', $madre)->where('estudiante_id', $deA->id)->count());
 
         // B no lo encuentra ni lo vincula, aunque conozca el id
         $this->como($this->b)->postJson('/api/padres/buscar-dui', ['dui' => '00000003-4'])->assertNotFound();
         $this->vincular($this->b, $deB->id, $madre)->assertNotFound();
-        $this->assertSame(0, DB::table('parientes')->count());
 
-        // A sí lo encuentra y lo vincula
+        // A sí lo encuentra y lo vincula a otro de sus estudiantes
         $this->como($this->a)->postJson('/api/padres/buscar-dui', ['dui' => '000000034'])->assertOk()->assertJsonPath('padre.id', $madre);
-        $this->vincular($this->a, $deA->id, $madre)->assertCreated();
+        $otroDeA = $this->estudianteDe($this->a, $this->catalogos['distrito']);
+        $this->vincular($this->a, $otroDeA->id, $madre)->assertCreated();
 
-        // Después de vincularlo, B sigue sin acceso
-        $this->vincular($this->b, $deB->id, $madre)->assertNotFound();
         $this->como($this->b)->getJson("/api/matriculas/estudiantes/{$deA->id}/padres")->assertNotFound();
         $this->como($this->a)->getJson("/api/matriculas/estudiantes/{$deA->id}/padres")->assertOk()->assertJsonPath('padres.0.id', $madre);
     }
@@ -68,49 +74,40 @@ class CierreSeguridadTest extends TestCase
     // B no puede registrar de nuevo a la misma persona para quedarse con el registro
     public function test_otro_encargado_no_se_apropia_registrando_el_mismo_dui(): void
     {
-        $madre = $this->como($this->a)->postJson('/api/padres', ['nombre' => 'Madre', 'dui' => '00000003-4', 'es_encargado' => false])
-            ->assertCreated()->json('padre.id');
+        $deA = $this->estudianteDe($this->a, $this->catalogos['distrito']);
+        $deB = $this->estudianteDe($this->b, $this->catalogos['distrito']);
+        $madre = $this->como($this->a)->postJson('/api/padres', ['nombre' => 'Madre', 'dui' => '00000003-4', 'es_encargado' => false,
+            'estudiante_id' => $deA->id, 'parentesco' => 'Madre'])->assertCreated()->json('padre.id');
 
-        $this->como($this->b)->postJson('/api/padres', ['nombre' => 'Otra', 'dui' => '000000034', 'es_encargado' => false])
-            ->assertStatus(422)->assertJsonValidationErrors('dui');
+        $this->como($this->b)->postJson('/api/padres', ['nombre' => 'Otra', 'dui' => '000000034', 'es_encargado' => false,
+            'estudiante_id' => $deB->id, 'parentesco' => 'Madre'])->assertStatus(422)->assertJsonValidationErrors('dui');
 
-        $padre = Padre::find($madre);
-        $this->assertSame('Madre', $padre->nombre);
-        $this->assertSame($this->a->id, $padre->registrado_por);
+        $this->assertSame('Madre', Padre::find($madre)->nombre);
     }
 
-    // Registros anteriores sin registrante: se deniega a todo encargado; el director sí puede
-    public function test_padre_heredado_sin_propiedad_comprobable_se_deniega(): void
+    // Padres sin cuenta ni estudiantes (heredados o registrados por el director): se deniega a todo encargado
+    public function test_padre_sin_estudiantes_solo_lo_vincula_el_director(): void
     {
         $deA = $this->estudianteDe($this->a, $this->catalogos['distrito']);
         $deB = $this->estudianteDe($this->b, $this->catalogos['distrito']);
-        $heredado = Padre::create(['nombre' => 'Padre heredado', 'dui' => '00016297-5']);
+        $director = $this->usuario(User::ROL_DIRECTOR);
+
+        // El director sí puede registrar un padre sin vincular
+        $sinVincular = $this->como($director)->postJson('/api/padres', ['nombre' => 'Padre', 'dui' => '00016297-5', 'es_encargado' => false])
+            ->assertCreated()->json('padre.id');
 
         foreach ([[$this->a, $deA], [$this->b, $deB]] as [$cuenta, $estudiante]) {
             $this->como($cuenta)->postJson('/api/padres/buscar-dui', ['dui' => '00016297-5'])->assertNotFound();
-            $this->vincular($cuenta, $estudiante->id, $heredado->id)->assertNotFound();
+            $this->vincular($cuenta, $estudiante->id, $sinVincular)->assertNotFound();
         }
 
-        $director = $this->usuario(User::ROL_DIRECTOR);
         $this->como($director)->postJson('/api/padres/buscar-dui', ['dui' => '00016297-5'])->assertOk();
-        $this->vincular($director, $deA->id, $heredado->id)->assertCreated();
+        $this->vincular($director, $deA->id, $sinVincular)->assertCreated();
 
         // Ya vinculado al estudiante de A: A puede usarlo; B sigue sin acceso
         $otroDeA = $this->estudianteDe($this->a, $this->catalogos['distrito']);
-        $this->vincular($this->a, $otroDeA->id, $heredado->id)->assertCreated();
-        $this->vincular($this->b, $deB->id, $heredado->id)->assertNotFound();
-    }
-
-    // Un padre registrado por el director no queda abierto a cualquier encargado
-    public function test_padre_registrado_por_director_no_lo_toma_un_encargado(): void
-    {
-        $deA = $this->estudianteDe($this->a, $this->catalogos['distrito']);
-        $director = $this->usuario(User::ROL_DIRECTOR);
-
-        $padre = $this->como($director)->postJson('/api/padres', ['nombre' => 'Padre', 'dui' => '00000003-4', 'es_encargado' => false])
-            ->assertCreated()->json('padre.id');
-
-        $this->vincular($this->a, $deA->id, $padre)->assertNotFound();
+        $this->vincular($this->a, $otroDeA->id, $sinVincular)->assertCreated();
+        $this->vincular($this->b, $deB->id, $sinVincular)->assertNotFound();
     }
 
     // Cambio de contraseña: las demás sesiones dejan de servir; la actual recibe un token nuevo

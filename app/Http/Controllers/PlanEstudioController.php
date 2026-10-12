@@ -32,7 +32,7 @@ class PlanEstudioController extends Controller
         'fecha_aprobacion.required' => 'La fecha de aprobación es obligatoria.',
         'fecha_aprobacion.date' => 'La fecha de aprobación no es válida.',
         'descripcion.required' => 'La descripción es obligatoria.',
-        'descripcion.max' => 'La descripción no debe exceder los 100 caracteres.',
+        'descripcion.max' => 'La descripción no debe exceder los 200 caracteres.',
     ];
 
     public function __construct(PlanEstudioService $planEstudioService)
@@ -162,7 +162,7 @@ class PlanEstudioController extends Controller
             'fecha_inicio' => 'required|date',
             'fecha_fin' => 'required|date|after:fecha_inicio',
             'fecha_aprobacion' => 'required|date',
-            'descripcion' => 'required|string|max:100',
+            'descripcion' => 'required|string|max:200',
         ], self::MENSAJES);
     }
 }

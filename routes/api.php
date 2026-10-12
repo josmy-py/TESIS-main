@@ -46,6 +46,7 @@ Route::prefix('auth')->group(function(){
 
 Route::middleware(['auth:api', 'activo'])->group(function () {
     // Estas rutas de consulta deben estar accesibles para el Cliente (para llenar los selects)
+    Route::get('grados/catalogo', [GradoController::class, 'catalogo']);
     Route::apiResource('grados', GradoController::class)->only(['index', 'show']);
     Route::apiResource('especialidades', EspecialidadController::class)->only(['index', 'show']);
     Route::apiResource('discapacidades', DiscapacidadController::class)->only(['index', 'show']);
@@ -117,7 +118,6 @@ Route::middleware(['auth:api', 'activo', 'role:DIRECTOR'])->group(function () {
     Route::post('anios-lectivos/{id}/activar', [AnioLectivoController::class, 'activar'])->whereNumber('id');
     Route::post('anios-lectivos/{id}/cerrar', [AnioLectivoController::class, 'cerrar'])->whereNumber('id');
     Route::post('anios-lectivos/{id}/periodos', [AnioLectivoController::class, 'agregarPeriodo'])->whereNumber('id');
-    Route::get('anios-lectivos/{id}/historial', [AnioLectivoController::class, 'historial'])->whereNumber('id');
     Route::put('periodos-escolares/{id}', [PeriodoEscolarController::class, 'update'])->whereNumber('id');
     Route::delete('periodos-escolares/{id}', [PeriodoEscolarController::class, 'destroy'])->whereNumber('id');
     Route::post('periodos-escolares/{id}/abrir', [PeriodoEscolarController::class, 'abrir'])->whereNumber('id');

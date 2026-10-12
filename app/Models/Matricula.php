@@ -10,7 +10,6 @@ class Matricula extends Model
 
     protected $fillable = [
         'ingreso',
-        'anio',
         'anio_lectivo_id',
         'estado',
         'foto',
@@ -21,7 +20,6 @@ class Matricula extends Model
         'especialidad_id',
         'enfermedad_id',
         'encargado_id',
-        'user_id',
     ];
 
     // Relación Mucho a Muchos con Discapacidad (vía tabla 'expedientes')

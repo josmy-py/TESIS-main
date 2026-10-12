@@ -16,9 +16,9 @@ class EncargadoController extends Controller
     {
         try {
             $validated = $request->validate([
-                'nombre' => 'required|string|max:50',
-                'parentesco' => 'required|in:Tío(a),Abuelo(a),Hermano(a),Otro',
-                'telefono' => 'required|string|max:10|regex:/^[267][0-9]{3}-?[0-9]{4}$/',
+                'nombre' => 'required|string|max:80',
+                'parentesco' => 'required|in:Tío(a),Abuelo(a),Hermano(a),Primo(a)',
+                'telefono' => 'required|string|max:15|regex:/^[267][0-9]{3}-?[0-9]{4}$/',
                 'dui' => ['required', 'string', 'max:10', new Dui(), 'unique:encargados,dui'],
                 'direccion' => 'required|string|max:100',
                 'user_id' => 'nullable|exists:users,id|unique:encargados,user_id',
@@ -90,9 +90,9 @@ class EncargadoController extends Controller
             $encargado = Encargado::findOrFail($id);
 
             $validated = $request->validate([
-                'nombre' => 'required|string|max:50',
-                'parentesco' => 'required|in:Padre,Madre,Tío(a),Abuelo(a),Hermano(a),Otro',
-                'telefono' => 'required|string|max:10|regex:/^[267][0-9]{3}-?[0-9]{4}$/',
+                'nombre' => 'required|string|max:80',
+                'parentesco' => 'required|in:Tío(a),Abuelo(a),Hermano(a),Primo(a)',
+                'telefono' => 'required|string|max:15|regex:/^[267][0-9]{3}-?[0-9]{4}$/',
                 'dui' => [
                     'required',
                     'string',

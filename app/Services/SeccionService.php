@@ -38,7 +38,6 @@ class SeccionService
             'nombre' => $datos['nombre'],
             'capacidad' => $datos['capacidad'],
             'turno' => $datos['turno'],
-            'anio' => $anioLectivo->anioCalendario(),
             'anio_lectivo_id' => $anioLectivo->id,
             'grado_id' => $datos['grado_id'],
             'profesor_id' => $datos['profesor_id'],
@@ -50,7 +49,7 @@ class SeccionService
         $seccion = Seccion::with('anioLectivo')->findOrFail($id);
         $anioLectivo = $this->anioLectivo($datos);
 
-        if ($seccion->anioLectivo?->estado === AnioLectivo::CERRADO) {
+        if ($seccion->anioLectivo?->estado === AnioLectivo::CIERRE) {
             throw ValidationException::withMessages(['anio_lectivo_id' => 'La sección pertenece a un año lectivo cerrado y no puede modificarse.']);
         }
         if ($seccion->anio_lectivo_id !== null && $seccion->anio_lectivo_id !== $anioLectivo->id && $seccion->matriculas()->exists()) {
@@ -71,7 +70,6 @@ class SeccionService
             'nombre' => $datos['nombre'],
             'capacidad' => $datos['capacidad'],
             'turno' => $datos['turno'],
-            'anio' => $anioLectivo->anioCalendario(),
             'anio_lectivo_id' => $anioLectivo->id,
             'grado_id' => $datos['grado_id'],
             'profesor_id' => $datos['profesor_id'],
@@ -97,9 +95,8 @@ class SeccionService
         return true;
     }
 
-    // Año lectivo indicado o, durante la transición, el que corresponde al campo "anio"
     private function anioLectivo(array $datos): AnioLectivo
     {
-        return app(CalendarioService::class)->anioParaSeccion($datos['anio_lectivo_id'] ?? null, $datos['anio'] ?? null);
+        return app(CalendarioService::class)->anioParaSeccion($datos['anio_lectivo_id']);
     }
 }

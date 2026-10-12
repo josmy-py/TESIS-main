@@ -4,30 +4,20 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Grado;
+use App\Support\CatalogoGrados;
 use Illuminate\Validation\Rule;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Validation\ValidationException;
 
 class GradoController extends Controller
 {
-    // Orden académico (M2.1.1): entero positivo; la unicidad se agrega en cada acción
-    private const REGLA_ORDEN = ['required', 'integer', 'min:1', 'max:999'];
-
-    private const MENSAJES_ORDEN = [
-        'orden.required' => 'El orden académico del grado es obligatorio.',
-        'orden.integer' => 'El orden académico debe ser un número entero.',
-        'orden.min' => 'El orden académico debe ser un número entero positivo.',
-        'orden.max' => 'El orden académico no debe ser mayor que 999.',
-        'orden.unique' => 'Ya existe un grado con ese orden académico.',
-    ];
-
     /**
      * Display a listing of the resource.
      */
     public function index()
     {
         try {
-            $grados = Grado::ordenAcademico()->get();
+            $grados = Grado::ordenAcademico();
             return response()->json(['grados' => $grados], 200);
         } catch (\Exception $e) {
             report($e);
@@ -44,19 +34,13 @@ class GradoController extends Controller
     public function store(Request $request)
     {
         try {
+            $this->nombreOficial($request);
             $request->validate([
-                'nombre' => 'required|string|max:50|unique:grados,nombre',
-                'orden' => [...self::REGLA_ORDEN, 'unique:grados,orden'],
-            ],
-            [
-                'nombre.required' => 'El nombre del grado es obligatorio.',
-                'nombre.string' => 'El nombre del grado debe ser una cadena de texto.',
-                'nombre.unique' => 'El nombre del grado ya está registrado.',
-            ] + self::MENSAJES_ORDEN);
+                'nombre' => ['required', 'string', Rule::in(array_keys(CatalogoGrados::GRADOS)), 'unique:grados,nombre'],
+            ], $this->mensajes());
 
             $grado = Grado::create([
                 'nombre' => $request->nombre,
-                'orden' => (int) $request->orden,
             ]);
 
             return response()->json(['message' => 'Grado registrado exitosamente', 'grado' => $grado], 201);
@@ -97,26 +81,20 @@ class GradoController extends Controller
         try {
             $grado = Grado::findOrFail($id);
 
+            $this->nombreOficial($request);
             $request->validate([
-                'nombre' => [
-                    'required',
-                    'string',
-                    'max:50',
-                    Rule::unique('grados', 'nombre')->ignore($id)
-                ],
-                // Obligatorio también al editar: así se completa el orden de los grados heredados
-                'orden' => [...self::REGLA_ORDEN, Rule::unique('grados', 'orden')->ignore($id)],
-            ],
-            [
-                'nombre.required' => 'El nombre del grado es obligatorio.',
-                'nombre.string' => 'El nombre del grado debe ser una cadena de texto.',
-                'nombre.max' => 'El nombre del grado no debe exceder los 50 caracteres.',
-                'nombre.unique' => 'El nombre del grado ya existe.',
-            ] + self::MENSAJES_ORDEN);
+                'nombre' => ['required', 'string', Rule::in(array_keys(CatalogoGrados::GRADOS)), Rule::unique('grados', 'nombre')->ignore($id)],
+            ], $this->mensajes());
+
+            // Cambiar el nombre cambia el orden: no se permite si el grado ya está en uso
+            if ($request->nombre !== $grado->nombre && ($grado->secciones()->exists() || $grado->planesEstudio()->exists())) {
+                return response()->json([
+                    'message' => 'No se puede cambiar el nombre del grado porque ya tiene secciones o planes de estudio: cambiaría su orden en la promoción.',
+                ], 409);
+            }
 
             $grado->update([
                 'nombre' => $request->nombre,
-                'orden' => (int) $request->orden,
             ]);
 
             return response()->json(['message' => 'Grado actualizado exitosamente', 'grado' => $grado], 200);
@@ -171,5 +149,37 @@ class GradoController extends Controller
                 'message' => 'Error al eliminar el grado',
             ], 500);
         }
+    }
+
+    /**
+     * Catálogo oficial de grados con su orden e indicación de si ya está registrado.
+     */
+    public function catalogo()
+    {
+        $registrados = Grado::pluck('id', 'nombre');
+
+        return response()->json([
+            'catalogo' => collect(CatalogoGrados::GRADOS)
+                ->map(fn ($orden, $nombre) => ['nombre' => $nombre, 'orden' => $orden, 'grado_id' => $registrados[$nombre] ?? null])
+                ->values(),
+        ], 200);
+    }
+
+    // Acepta el nombre sin importar mayúsculas, tildes o espacios y guarda el oficial
+    private function nombreOficial(Request $request): void
+    {
+        if (is_string($request->nombre) && ($oficial = CatalogoGrados::oficial($request->nombre))) {
+            $request->merge(['nombre' => $oficial]);
+        }
+    }
+
+    private function mensajes(): array
+    {
+        return [
+            'nombre.required' => 'El nombre del grado es obligatorio.',
+            'nombre.string' => 'El nombre del grado debe ser una cadena de texto.',
+            'nombre.in' => 'El grado debe ser uno del catálogo oficial: '.implode(', ', array_keys(CatalogoGrados::GRADOS)).'.',
+            'nombre.unique' => 'El grado ya está registrado.',
+        ];
     }
 }

@@ -34,11 +34,11 @@ class EspecialidadController extends Controller
     {
         try {
             $request->validate([
-                'nombre' => 'required|string|max:20|unique:especialidades,nombre',
+                'nombre' => 'required|string|max:50|unique:especialidades,nombre',
             ],
             [
                 'nombre.required' => 'El nombre del la especialidad es obligatorio.',
-                'nombre.max' => 'El nombre de la especialidad no debe exceder los 20 caracteres.',
+                'nombre.max' => 'El nombre de la especialidad no debe exceder los 50 caracteres.',
                 'nombre.unique' => 'El nombre de la especialidad ya está registrado.',
             ]);
 
@@ -88,13 +88,13 @@ class EspecialidadController extends Controller
                 'nombre' => [
                     'required',
                     'string',
-                    'max:20',
+                    'max:50',
                     Rule::unique('especialidades', 'nombre')->ignore($id)
                 ],
             ],
             [
                 'nombre.required' => 'El nombre de la especialidad es obligatoria.',
-                'nombre.max' => 'El nombre de la especialidad no debe exceder los 20 caracteres.',
+                'nombre.max' => 'El nombre de la especialidad no debe exceder los 50 caracteres.',
                 'nombre.unique' => 'El nombre de la especialidad ya existe.',
             ]);
 

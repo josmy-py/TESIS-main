@@ -38,19 +38,18 @@ class SeccionController extends Controller
     {
         try {
             $datos = $request->validate([
-                'nombre' => 'required|string|max:50',
+                'nombre' => 'required|string|max:10',
                 'capacidad' => 'required|integer',
                 'turno' => 'required|in:matutino,vespertino',
-                // M2.2: se indica el año lectivo; "anio" se acepta durante la transición
-                'anio' => 'required_without:anio_lectivo_id|nullable|integer|min:2025|max:2100',
-                'anio_lectivo_id' => 'nullable|integer',
+                'anio_lectivo_id' => 'required|integer',
                 'grado_id' => 'required|exists:grados,id',
                 'profesor_id' => 'required|exists:profesores,id',
             ], [
                 'nombre.required' => 'El nombre de la sección es obligatorio.',
                 'capacidad.required' => 'La capacidad de la sección es obligatoria.',
                 'turno.required' => 'El turno de la sección es obligatorio.',
-                'anio.required' => 'El año de la sección es obligatorio.',
+                'nombre.max' => 'El nombre de la sección no debe exceder los 10 caracteres.',
+                'anio_lectivo_id.required' => 'El año lectivo de la sección es obligatorio.',
                 'grado_id.exists' => 'El grado seleccionado no es válido.',
                 'profesor_id.exists' => 'El profesor seleccionado no es válido.',
             ]);
@@ -101,19 +100,18 @@ class SeccionController extends Controller
     {
         try {
             $datos = $request->validate([
-                'nombre' => 'required|string|max:50',
+                'nombre' => 'required|string|max:10',
                 'capacidad' => 'required|integer',
                 'turno' => 'required|in:matutino,vespertino',
-                // M2.2: se indica el año lectivo; "anio" se acepta durante la transición
-                'anio' => 'required_without:anio_lectivo_id|nullable|integer|min:2025|max:2100',
-                'anio_lectivo_id' => 'nullable|integer',
+                'anio_lectivo_id' => 'required|integer',
                 'grado_id' => 'required|exists:grados,id',
                 'profesor_id' => 'required|exists:profesores,id',
             ], [
                 'nombre.required' => 'El nombre de la sección es obligatorio.',
                 'capacidad.required' => 'La capacidad de la sección es obligatoria.',
                 'turno.required' => 'El turno de la sección es obligatorio.',
-                'anio.required' => 'El año de la sección es obligatorio.',
+                'nombre.max' => 'El nombre de la sección no debe exceder los 10 caracteres.',
+                'anio_lectivo_id.required' => 'El año lectivo de la sección es obligatorio.',
                 'grado_id.exists' => 'El grado seleccionado no es válido.',
                 'profesor_id.exists' => 'El profesor seleccionado no es válido.',
             ]);

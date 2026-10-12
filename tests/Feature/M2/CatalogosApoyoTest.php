@@ -32,7 +32,7 @@ class CatalogosApoyoTest extends TestCase
     public function test_especialidad_respeta_el_largo_de_la_columna(): void
     {
         $this->como($this->director)->postJson('/api/especialidades', ['nombre' => 'Bachillerato General'])->assertCreated();
-        $this->como($this->director)->postJson('/api/especialidades', ['nombre' => str_repeat('a', 21)])
+        $this->como($this->director)->postJson('/api/especialidades', ['nombre' => str_repeat('a', 51)])
             ->assertStatus(422)->assertJsonValidationErrors('nombre');
         $this->como($this->director)->postJson('/api/especialidades', ['nombre' => 'Bachillerato General'])
             ->assertStatus(422)->assertJsonValidationErrors('nombre');

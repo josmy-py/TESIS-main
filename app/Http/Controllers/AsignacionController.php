@@ -44,14 +44,10 @@ class AsignacionController extends Controller
     {
         try {
             $request->validate([
-                'anio' => 'required|integer|digits:4|min:2025|max:2100',
                 'profesor_id' => 'required|exists:profesores,id',
                 'asignatura_id' => 'required|exists:asignaturas,id',
                 'seccion_id' => 'required|exists:secciones,id',
             ], [
-                'anio.required' => 'El año es obligatorio.',
-                'anio.digits' => 'El año debe tener 4 dígitos.',
-                'anio.min' => 'El año no puede ser menor a 2025.',
                 'profesor_id.required' => 'El profesor es obligatorio.',
                 'asignatura_id.required' => 'La asignatura es obligatoria.',
                 'seccion_id.required' => 'La sección es obligatoria.',
@@ -61,7 +57,7 @@ class AsignacionController extends Controller
 
             if (!$asignacion) {
                 return response()->json([
-                    'message' => 'La asignación ya existe para el profesor, asignatura, sección y año especificados.'
+                    'message' => 'La asignación ya existe para el profesor, asignatura y sección especificados.'
                 ], 422);
             }
 

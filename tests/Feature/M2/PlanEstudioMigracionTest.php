@@ -44,7 +44,7 @@ class PlanEstudioMigracionTest extends TestCase
         $this->assertSame(1, DB::table('asignaturas')->where('plan_estudio_id', $plan)->count());
 
         // El mismo nombre ya se admite en otro plan, y la especialidad es opcional
-        $grado = DB::table('grados')->insertGetId(['nombre' => 'Primer grado', 'orden' => 1]);
+        $grado = DB::table('grados')->insertGetId(['nombre' => 'Primer grado']);
         $otro = DB::table('plan_estudios')->insertGetId([
             'nombre' => 'Plan Básica', 'grado_id' => $grado, 'especialidad_id' => null, 'estado' => true,
             'fecha_inicio' => '2026-01-15', 'fecha_fin' => '2026-11-30', 'descripcion' => 'Y', 'fecha_aprobacion' => '2025-12-01',

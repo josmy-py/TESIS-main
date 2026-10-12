@@ -413,7 +413,6 @@ class MatriculaController extends Controller
         try {
             $request->validate([
                 'estudiante_id' => 'required|exists:estudiantes,id',
-                'anio' => 'required_without:anio_lectivo_id|nullable|string|size:4',
                 'anio_lectivo_id' => 'nullable|integer|exists:anios_lectivos,id',
             ]);
 
@@ -422,7 +421,6 @@ class MatriculaController extends Controller
             $duplicidad = $this->matriculaService
                 ->verificarDuplicidad(
                     $request->estudiante_id,
-                    $request->anio,
                     $request->anio_lectivo_id
                 );
 

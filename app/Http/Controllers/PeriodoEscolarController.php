@@ -11,8 +11,8 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Periodos escolares (M2.2). Consultas para cuentas con sesión; edición y
- * transiciones de estado solo DIRECTOR. Reabrir exige motivo y queda en la
- * auditoría.
+ * transiciones de estado solo DIRECTOR. Reabrir exige motivo, que queda en el
+ * registro de la aplicación (storage/logs).
  */
 class PeriodoEscolarController extends Controller
 {
@@ -32,8 +32,6 @@ class PeriodoEscolarController extends Controller
 
             $datos = $request->validate([
                 'nombre' => 'required|string|max:50',
-                'fecha_inicio' => 'nullable|date',
-                'fecha_fin' => 'nullable|date',
             ], [
                 'nombre.required' => 'El nombre del periodo es obligatorio.',
                 'nombre.max' => 'El nombre no debe exceder los 50 caracteres.',

@@ -62,7 +62,7 @@ class MigracionYSeedersTest extends TestCase
         DB::table('padres')->insert(['nombre' => 'Padre Cliente', 'dui' => '000162975', 'user_id' => $cliente]);
         DB::table('profesores')->insert(['nombre' => 'Profe Uno', 'dui' => '00000001-8', 'fecha_nacimiento' => '1990-01-01', 'codigo' => 'P1', 'telefono' => '7000-0000', 'direccion' => 'X', 'user_id' => $profe]);
         DB::table('padres')->insert(['nombre' => 'Dup Uno', 'dui' => '00000002-6', 'user_id' => $dup1]);
-        DB::table('encargados')->insert(['nombre' => 'Dup Dos', 'parentesco' => 'Otro', 'telefono' => '2222', 'dui' => '00000002-6', 'direccion' => 'X', 'user_id' => $dup2]);
+        DB::table('encargados')->insert(['nombre' => 'Dup Dos', 'parentesco' => 'Tío(a)', 'telefono' => '2222', 'dui' => '00000002-6', 'direccion' => 'X', 'user_id' => $dup2]);
 
         $antes = DB::table('users')->count();
         Artisan::call('migrate');

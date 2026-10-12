@@ -111,7 +111,7 @@ class ProfesorTest extends TestCase
         $this->crear(['fecha_contratacion' => now()->addDay()->toDateString()])
             ->assertStatus(422)->assertJsonValidationErrors(['fecha_contratacion']);
 
-        $this->crear(['nombre' => str_repeat('a', 51)])
+        $this->crear(['nombre' => str_repeat('a', 81)])
             ->assertStatus(422)->assertJsonValidationErrors(['nombre']);
 
         $this->crear(['dui' => '12345678-0'])
@@ -225,7 +225,7 @@ class ProfesorTest extends TestCase
         $this->assertNull(User::find($userId));
 
         $id = $this->crear()->json('profesor.id');
-        $grado = DB::table('grados')->insertGetId(['nombre' => 'Primer grado', 'orden' => 1]);
+        $grado = DB::table('grados')->insertGetId(['nombre' => 'Primer grado']);
         DB::table('secciones')->insert([
             'nombre' => 'A', 'grado_id' => $grado, 'profesor_id' => $id,
         ] + $this->columnasSeccion());
@@ -257,6 +257,6 @@ class ProfesorTest extends TestCase
     // Columnas obligatorias de secciones según el esquema actual
     private function columnasSeccion(): array
     {
-        return ['capacidad' => 30, 'turno' => 'matutino', 'anio' => (int) now()->year];
+        return ['capacidad' => 30, 'turno' => 'matutino'];
     }
 }

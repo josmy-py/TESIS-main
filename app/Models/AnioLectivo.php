@@ -5,16 +5,17 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * Año lectivo (M2.2). Las transiciones de estado se hacen solo con
+ * Año lectivo (M2.2). Estados del diagrama ER: inactivo (aún no inicia),
+ * activo y cierre. Las transiciones se hacen solo con
  * App\Services\CalendarioService, que valida las reglas.
  */
 class AnioLectivo extends Model
 {
-    public const PLANIFICADO = 'planificado';
+    public const INACTIVO = 'inactivo';
     public const ACTIVO = 'activo';
-    public const CERRADO = 'cerrado';
+    public const CIERRE = 'cierre';
 
-    public const ESTADOS = [self::PLANIFICADO, self::ACTIVO, self::CERRADO];
+    public const ESTADOS = [self::INACTIVO, self::ACTIVO, self::CIERRE];
 
     protected $table = 'anios_lectivos';
 
@@ -24,8 +25,6 @@ class AnioLectivo extends Model
         'fecha_fin',
     ];
 
-    protected $hidden = ['activo_unico'];
-
     protected $casts = [
         'fecha_inicio' => 'date:Y-m-d',
         'fecha_fin' => 'date:Y-m-d',
@@ -33,7 +32,7 @@ class AnioLectivo extends Model
 
     public function periodos()
     {
-        return $this->hasMany(PeriodoEscolar::class)->orderBy('numero');
+        return $this->hasMany(PeriodoEscolar::class)->orderBy('nivel');
     }
 
     public function secciones()
@@ -59,19 +58,5 @@ class AnioLectivo extends Model
     public function fechasValidas(): bool
     {
         return $this->fecha_inicio !== null && $this->fecha_fin !== null && $this->fecha_inicio->lt($this->fecha_fin);
-    }
-
-    /**
-     * Año calendario que se guarda en los campos antiguos "anio" durante la
-     * transición: el de la fecha de inicio o, si no hay fechas, el nombre
-     * cuando es un año de 4 cifras.
-     */
-    public function anioCalendario(): ?string
-    {
-        if ($this->fecha_inicio !== null) {
-            return $this->fecha_inicio->format('Y');
-        }
-
-        return preg_match('/^\d{4}$/', $this->nombre) ? $this->nombre : null;
     }
 }

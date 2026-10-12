@@ -3,6 +3,8 @@
 namespace Tests\Feature\M2;
 
 use App\Models\User;
+use App\Support\RespaldoAlineacion;
+use Illuminate\Support\Facades\File;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -11,9 +13,9 @@ use Tests\Feature\M1\DatosM1;
 use Tests\TestCase;
 
 /**
- * M2.2: migración sobre una base con datos anteriores. Se deshacen las
- * migraciones de M2.2, se cargan datos con los campos antiguos y se vuelven a
- * aplicar.
+ * Migraciones del calendario (M2.2) y de la alineación con el diagrama sobre
+ * una base con datos anteriores: se deshacen, se cargan datos con los campos
+ * antiguos y se vuelven a aplicar.
  */
 class CalendarioMigracionTest extends TestCase
 {
@@ -21,13 +23,19 @@ class CalendarioMigracionTest extends TestCase
 
     private const PRIMERA = '2026_10_12_000001_create_anios_lectivos_table';
 
+    protected function tearDown(): void
+    {
+        File::deleteDirectory(RespaldoAlineacion::directorio());
+        parent::tearDown();
+    }
+
     private function revertirM22(): void
     {
         $pasos = DB::table('migrations')->where('migration', '>=', self::PRIMERA)->count();
         Artisan::call('migrate:rollback', ['--step' => $pasos]);
     }
 
-    public function test_migracion_conserva_datos_y_solo_asigna_lo_inequivoco(): void
+    public function test_migracion_conserva_datos_y_se_detiene_ante_datos_dudosos(): void
     {
         $this->revertirM22();
         $this->assertFalse(Schema::hasTable('anios_lectivos'));
@@ -60,68 +68,73 @@ class CalendarioMigracionTest extends TestCase
 
         DB::table('asignaciones')->insert([
             ['anio' => 2026, 'profesor_id' => $profesor, 'asignatura_id' => $asignatura, 'seccion_id' => $s2026],
-            ['anio' => 2025, 'profesor_id' => $profesor, 'asignatura_id' => $asignatura, 'seccion_id' => $s2026],
-            ['anio' => 2023, 'profesor_id' => $profesor, 'asignatura_id' => $asignatura, 'seccion_id' => $s2026], // año solo en asignaciones
-            ['anio' => 1999, 'profesor_id' => $profesor, 'asignatura_id' => $asignatura, 'seccion_id' => $s2026], // fuera de rango
+            ['anio' => 2025, 'profesor_id' => $profesor, 'asignatura_id' => $asignatura, 'seccion_id' => $s2026], // no coincide
         ]);
+        $asignacionDistinta = DB::table('asignaciones')->where('anio', 2025)->value('id');
 
         DB::table('periodo_escolares')->insert([
             ['nombre' => 'Primer trimestre', 'nivel' => 1],
             ['nombre' => 'Anual', 'nivel' => 7],
         ]);
 
+        // 1. Con datos dudosos la alineación se detiene y dice qué revisar
+        try {
+            Artisan::call('migrate');
+            $this->fail('La migración debió detenerse.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString("asignaciones: id {$asignacionDistinta} tiene el año 2025, pero su sección es de 2026", $e->getMessage());
+            $this->assertStringContainsString("matriculas: id {$distinta} tiene el año 2025, pero su sección es de 2026", $e->getMessage());
+            $this->assertStringContainsString("matriculas: id {$invalida} tiene el año \"20x6\"", $e->getMessage());
+        }
+        $this->assertTrue(Schema::hasColumn('matriculas', 'anio'), 'Los datos dudosos no se tocan');
+        $this->assertSame('20x6', DB::table('matriculas')->where('id', $invalida)->value('anio'));
+
+        // 2. Corregidos los datos, la base queda como el diagrama
+        DB::table('matriculas')->where('id', $distinta)->update(['anio' => '2026']);
+        DB::table('matriculas')->where('id', $invalida)->update(['anio' => '2026']);
+        DB::table('asignaciones')->where('id', $asignacionDistinta)->update(['anio' => 2026]);
         $antes = $this->camposAntiguos();
 
         Artisan::call('migrate');
 
-        // Campos antiguos intactos
-        $this->assertSame($antes, $this->camposAntiguos());
+        foreach (['secciones', 'matriculas', 'asignaciones'] as $tabla) {
+            $this->assertFalse(Schema::hasColumn($tabla, 'anio'), "{$tabla}.anio no está en el diagrama");
+        }
+        $this->assertFalse(Schema::hasColumn('periodo_escolares', 'numero'));
 
-        // Años creados sin fechas inventadas, en estado planificado
+        // Años creados sin fechas inventadas, inactivos
         $anios = DB::table('anios_lectivos')->orderBy('nombre')->get();
-        // También se considera asignaciones.anio (2023 solo aparece allí); 1999 queda fuera de rango
-        $this->assertSame(['2023', '2024', '2025', '2026'], $anios->pluck('nombre')->all());
+        $this->assertSame(['2024', '2025', '2026'], $anios->pluck('nombre')->all());
         foreach ($anios as $anio) {
             $this->assertNull($anio->fecha_inicio);
             $this->assertNull($anio->fecha_fin);
-            $this->assertSame('planificado', $anio->estado);
+            $this->assertSame('inactivo', $anio->estado);
         }
         $id = $anios->pluck('id', 'nombre');
 
         $this->assertSame($id['2025'], (int) DB::table('secciones')->where('id', $s2025)->value('anio_lectivo_id'));
         $this->assertSame($id['2026'], (int) DB::table('secciones')->where('id', $s2026)->value('anio_lectivo_id'));
-        $this->assertSame($id['2026'], (int) DB::table('matriculas')->where('id', $coincide)->value('anio_lectivo_id'));
+        foreach ([$coincide, $distinta, $invalida] as $m) {
+            $this->assertSame($id['2026'], (int) DB::table('matriculas')->where('id', $m)->value('anio_lectivo_id'));
+        }
         $this->assertSame($id['2024'], (int) DB::table('matriculas')->where('id', $sinSeccion)->value('anio_lectivo_id'));
-        $this->assertNull(DB::table('matriculas')->where('id', $distinta)->value('anio_lectivo_id'));
-        $this->assertNull(DB::table('matriculas')->where('id', $invalida)->value('anio_lectivo_id'));
 
-        // Periodos anteriores: se conservan nombre y nivel; no se les asigna año ni número
+        // Periodos anteriores: se conservan nombre y nivel; no se les asigna año
         $periodos = DB::table('periodo_escolares')->orderBy('id')->get();
         $this->assertSame([['Primer trimestre', 1], ['Anual', 7]], $periodos->map(fn ($p) => [$p->nombre, (int) $p->nivel])->all());
         $this->assertSame([null, null], $periodos->pluck('anio_lectivo_id')->all());
-        $this->assertSame([null, null], $periodos->pluck('numero')->all());
         $this->assertSame(['pendiente', 'pendiente'], $periodos->pluck('estado')->all());
 
-        // El diagnóstico lo identifica todo, sin modificar nada
+        // El diagnóstico lo identifica, sin modificar nada
         Artisan::call('siga:diagnostico-calendario');
         $salida = Artisan::output();
-        $this->assertStringContainsString('Años lectivos sin fechas (no pueden activarse): 4', $salida);
-        $this->assertStringContainsString('Años que solo aparecen en asignaciones (sin sección ni matrícula de ese año): 2', $salida);
-        $this->assertStringContainsString('Asignaciones cuyo año no corresponde a ningún año lectivo: 1', $salida);
-        $this->assertStringContainsString('Periodos anteriores sin año lectivo o sin número (se conservan nombre y nivel): 2', $salida);
-        $this->assertStringContainsString('Matrículas sin año lectivo (año inválido o distinto al de su sección): 2', $salida);
-        $this->assertStringContainsString('Asignaciones cuyo año no coincide con el de su sección: 3', $salida);
+        $this->assertStringContainsString('Años lectivos sin fechas (no pueden activarse): 3', $salida);
+        $this->assertStringContainsString('Periodos anteriores sin año lectivo o sin número (nivel): 2', $salida);
         $this->assertStringContainsString('Secciones sin año lectivo: 0', $salida);
-        $this->assertStringContainsString('20x6', $salida);
-        $diagnostico = app(\App\Services\CalendarioService::class)->diagnostico();
-        $this->assertSame([
-            ['anio' => '1999', 'anio_lectivo_id' => null, 'estado' => null, 'asignaciones' => 1],
-            ['anio' => '2023', 'anio_lectivo_id' => $id['2023'], 'estado' => 'planificado', 'asignaciones' => 1],
-        ], array_map(fn ($f) => ['anio' => $f['anio'], 'anio_lectivo_id' => $f['anio_lectivo_id'] === null ? null : (int) $f['anio_lectivo_id'], 'estado' => $f['estado'], 'asignaciones' => $f['asignaciones']], $diagnostico['anios_solo_en_asignaciones']));
-        $this->assertSame(['1999'], array_map(fn ($f) => (string) $f['anio'], $diagnostico['asignaciones_sin_anio_lectivo']));
-        $this->assertSame($antes, $this->camposAntiguos());
+        $this->assertStringContainsString('Matrículas sin año lectivo: 0', $salida);
+        $this->assertStringContainsString('Matrículas con un año lectivo distinto al de su sección: 0', $salida);
 
-        // Un periodo anterior no se puede abrir ni editar hasta revisarlo
+        // Un periodo anterior no se puede abrir ni borrar hasta revisarlo
         $director = $this->usuario(User::ROL_DIRECTOR);
         $this->como($director)->postJson("/api/periodos-escolares/{$periodos[0]->id}/abrir")->assertStatus(409);
         $this->como($director)->deleteJson("/api/periodos-escolares/{$periodos[0]->id}")->assertStatus(409);
@@ -132,12 +145,12 @@ class CalendarioMigracionTest extends TestCase
         $this->como($director)->putJson("/api/anios-lectivos/{$id['2026']}", ['nombre' => '2026', 'fecha_inicio' => '2026-01-15', 'fecha_fin' => '2026-11-30'])->assertOk();
         $this->como($director)->postJson("/api/anios-lectivos/{$id['2026']}/activar")->assertOk();
 
-        // Revertir y volver a aplicar conserva los datos
+        // 3. Revertir y volver a aplicar conserva los datos
         $this->revertirM22();
         $this->assertSame($antes, $this->camposAntiguos());
         $this->assertSame(2, DB::table('periodo_escolares')->count());
         Artisan::call('migrate');
-        $this->assertSame(4, DB::table('anios_lectivos')->count());
+        $this->assertSame(3, DB::table('anios_lectivos')->count());
     }
 
     private function camposAntiguos(): array

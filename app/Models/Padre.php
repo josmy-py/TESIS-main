@@ -14,12 +14,6 @@ class Padre extends Model
         'telefono',
         'email',
         'user_id',
-        'registrado_por',
-    ];
-
-    // Dato interno de propiedad: no se devuelve en las respuestas de la API
-    protected $hidden = [
-        'registrado_por',
     ];
 
     public function estudiantes()

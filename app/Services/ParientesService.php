@@ -11,8 +11,8 @@ class ParientesService
 {
     /**
      * Con $propietarioId (cuenta ENCARGADO): el estudiante debe ser suyo y el
-     * padre debe ser la propia cuenta, estar ya vinculado a uno de sus
-     * estudiantes o haber sido registrado por esa misma cuenta. Si no se puede
+     * padre debe ser la propia cuenta o estar ya vinculado a uno de sus
+     * estudiantes. Si no se puede
      * comprobar la propiedad, se deniega. Lo ajeno responde como no encontrado.
      */
     public function relacionarPadre($estudianteId, $padreId, $parentesco, ?int $propietarioId = null)
@@ -40,11 +40,7 @@ class ParientesService
             return (int) $padre->user_id === $propietarioId;
         }
 
-        if ((int) $padre->registrado_por === $propietarioId) {
-            return true;
-        }
-
-        // Sin cuenta ni registrante propio: solo si ya comparte un estudiante con esta cuenta
+        // Sin cuenta propia: solo si ya comparte un estudiante con esta cuenta
         return $padre->estudiantes()->where('estudiantes.user_id', $propietarioId)->exists();
     }
 }

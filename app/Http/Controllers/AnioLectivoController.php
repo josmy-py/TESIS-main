@@ -67,11 +67,6 @@ class AnioLectivoController extends Controller
         return $this->responder(fn () => response()->json(['periodos' => $this->calendario->periodos($id)]), 'Error al obtener los periodos');
     }
 
-    public function historial(string $id)
-    {
-        return $this->responder(fn () => response()->json(['historial' => $this->calendario->historial($id)]), 'Error al obtener el historial');
-    }
-
     public function diagnostico()
     {
         return $this->responder(fn () => response()->json(['diagnostico' => $this->calendario->diagnostico()]), 'Error al generar el diagnóstico');
@@ -144,8 +139,6 @@ class AnioLectivoController extends Controller
 
             $datos = $request->validate([
                 'nombre' => 'nullable|string|max:50',
-                'fecha_inicio' => 'nullable|date',
-                'fecha_fin' => 'nullable|date',
             ]);
 
             return response()->json([

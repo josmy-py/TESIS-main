@@ -15,8 +15,7 @@ class ProfesorController extends Controller
 {
     private const MENSAJES = [
         'nombre.required' => 'El nombre del profesor es obligatorio.',
-        'nombre.max' => 'El nombre del profesor no debe exceder los 50 caracteres.',
-        'nombre.unique' => 'Ya existe un profesor registrado con ese nombre.',
+        'nombre.max' => 'El nombre del profesor no debe exceder los 80 caracteres.',
         'dui.required' => 'El DUI del profesor es obligatorio.',
         'dui.unique' => 'El DUI del profesor ya está registrado.',
         'email.required' => 'El correo es obligatorio para crear la cuenta del docente.',
@@ -45,9 +44,9 @@ class ProfesorController extends Controller
     private function reglasComunes(?int $id = null): array
     {
         return [
-            'nombre' => ['required', 'string', 'max:50', Rule::unique('profesores', 'nombre')->ignore($id)],
+            'nombre' => ['required', 'string', 'max:80'],
             'fecha_nacimiento' => 'required|date|before_or_equal:-18 years',
-            'telefono' => ['required', 'string', 'max:10', 'regex:/^[267][0-9]{3}-?[0-9]{4}$/', Rule::unique('profesores', 'telefono')->ignore($id)],
+            'telefono' => ['required', 'string', 'max:15', 'regex:/^[267][0-9]{3}-?[0-9]{4}$/', Rule::unique('profesores', 'telefono')->ignore($id)],
             'direccion' => 'required|string|max:100',
             'especialidad' => 'required|string|max:50',
             'fecha_contratacion' => 'required|date|after:fecha_nacimiento|before_or_equal:today',

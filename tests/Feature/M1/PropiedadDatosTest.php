@@ -63,11 +63,11 @@ class PropiedadDatosTest extends TestCase
         $this->como($this->a)->getJson("/api/matriculas/{$matB}")->assertNotFound();
         $this->como($this->a)->getJson("/api/matriculas/{$matA}")->assertOk();
 
-        $encargadoB = DB::table('encargados')->insertGetId(['nombre' => 'Enc B', 'parentesco' => 'Otro', 'telefono' => '22222222', 'dui' => '00000002-6', 'direccion' => 'X', 'user_id' => $this->b->id]);
+        $encargadoB = DB::table('encargados')->insertGetId(['nombre' => 'Enc B', 'parentesco' => 'Tío(a)', 'telefono' => '22222222', 'dui' => '00000002-6', 'direccion' => 'X', 'user_id' => $this->b->id]);
         $this->como($this->a)->putJson("/api/matriculas/{$matB}", ['enfermedad_id' => $this->catalogos['enfermedad'], 'encargado_id' => $encargadoB, 'especialidad_id' => $this->catalogos['especialidad']])
             ->assertStatus(422)->assertJsonValidationErrors('encargado_id');
 
-        $encargadoA = DB::table('encargados')->insertGetId(['nombre' => 'Enc A', 'parentesco' => 'Otro', 'telefono' => '22222221', 'dui' => '00000001-8', 'direccion' => 'X', 'user_id' => $this->a->id]);
+        $encargadoA = DB::table('encargados')->insertGetId(['nombre' => 'Enc A', 'parentesco' => 'Tío(a)', 'telefono' => '22222221', 'dui' => '00000001-8', 'direccion' => 'X', 'user_id' => $this->a->id]);
         $this->como($this->a)->putJson("/api/matriculas/{$matB}", ['enfermedad_id' => $this->catalogos['enfermedad'], 'encargado_id' => $encargadoA, 'especialidad_id' => $this->catalogos['especialidad']])
             ->assertNotFound();
         $this->como($this->a)->putJson("/api/matriculas/{$matA}", ['enfermedad_id' => $this->catalogos['enfermedad'], 'encargado_id' => $encargadoA, 'especialidad_id' => $this->catalogos['especialidad']])
@@ -78,7 +78,7 @@ class PropiedadDatosTest extends TestCase
         $this->como($this->a)->getJson("/api/matriculas/estudiantes/{$deB->id}/padres")->assertNotFound();
         $this->como($this->a)->getJson('/api/matriculas/estudiantes-inscritos')->assertJsonCount(1, 'estudiantes');
         $this->como($this->a)->postJson("/api/matriculas/validar-grado/{$deB->id}/1", ['ingreso' => 'Nuevo ingreso'])->assertNotFound();
-        $this->como($this->a)->postJson('/api/matriculas/duplicidad', ['estudiante_id' => $deB->id, 'anio' => (string) now()->year])->assertNotFound();
+        $this->como($this->a)->postJson('/api/matriculas/duplicidad', ['estudiante_id' => $deB->id])->assertNotFound();
 
         // Crear una matrícula para un estudiante ajeno
         Storage::fake('public');
@@ -113,9 +113,10 @@ class PropiedadDatosTest extends TestCase
         $this->como($this->a)->postJson('/api/padres', ['nombre' => 'A', 'dui' => '000000018', 'es_encargado' => true])
             ->assertCreated()->assertJsonPath('padre.user_id', $this->a->id)->assertJsonPath('padre.dui', '00000001-8');
 
-        // Un padre recién registrado (sin cuenta ni estudiantes) se relaciona con el estudiante propio
-        $madre = $this->como($this->a)->postJson('/api/padres', ['nombre' => 'Madre de A', 'dui' => '00000003-4', 'es_encargado' => false])->assertCreated()->json('padre.id');
-        $this->como($this->a)->postJson('/api/parientes', ['estudiante_id' => $deA->id, 'padre_id' => $madre, 'parentesco' => 'Madre'])->assertCreated();
+        // Un padre se registra ya relacionado con el estudiante propio (tabla parientes)
+        $madre = $this->como($this->a)->postJson('/api/padres', ['nombre' => 'Madre de A', 'dui' => '00000003-4', 'es_encargado' => false,
+            'estudiante_id' => $deA->id, 'parentesco' => 'Madre'])->assertCreated()->json('padre.id');
+        $this->assertSame(1, \Illuminate\Support\Facades\DB::table('parientes')->where('padre_id', $madre)->where('estudiante_id', $deA->id)->count());
     }
 
     public function test_docente_no_accede_a_operaciones_administrativas(): void

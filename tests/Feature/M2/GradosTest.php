@@ -4,6 +4,7 @@ namespace Tests\Feature\M2;
 
 use App\Models\Grado;
 use App\Models\User;
+use App\Support\CatalogoGrados;
 use App\Support\OrdenGrado;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
@@ -13,7 +14,7 @@ use Tests\Feature\M1\DatosM1;
 use Tests\TestCase;
 
 /**
- * M2.1.1: orden académico de los grados y promoción basada en ese orden.
+ * Orden académico de los grados (catálogo cerrado de nombres oficiales) y promoción basada en ese orden.
  */
 class GradosTest extends TestCase
 {
@@ -28,49 +29,89 @@ class GradosTest extends TestCase
         $this->director = $this->usuario(User::ROL_DIRECTOR);
     }
 
-    public function test_crear_y_editar_con_orden(): void
+    // El orden académico no se guarda (no está en el diagrama): es el del catálogo oficial
+    public function test_solo_se_aceptan_grados_del_catalogo_oficial(): void
     {
-        $id = $this->como($this->director)->postJson('/api/grados', ['nombre' => 'Primer grado', 'orden' => 1])
+        $id = $this->como($this->director)->postJson('/api/grados', ['nombre' => 'Primer grado', 'orden' => 7])
             ->assertCreated()->assertJsonPath('grado.orden', 1)->json('grado.id');
+        $this->assertFalse(Schema::hasColumn('grados', 'orden'));
 
-        $this->como($this->director)->putJson("/api/grados/{$id}", ['nombre' => 'Primer grado', 'orden' => 2])
+        // Mayúsculas, tildes y espacios no importan: se guarda el nombre oficial
+        $this->como($this->director)->postJson('/api/grados', ['nombre' => '  parvularia 4 AÑOS '])
+            ->assertCreated()->assertJsonPath('grado.nombre', 'Parvularia 4 años')->assertJsonPath('grado.orden', -2);
+        $this->como($this->director)->postJson('/api/grados', ['nombre' => 'septimo grado'])
+            ->assertCreated()->assertJsonPath('grado.nombre', 'Séptimo grado');
+
+        // Cualquier otro nombre se rechaza, igual que un grado repetido
+        foreach (['1er Año', 'Parvularia 4', 'Kinder', 'Primer grado A', 'Tercer año de bachillerato', ''] as $nombre) {
+            $this->como($this->director)->postJson('/api/grados', ['nombre' => $nombre])
+                ->assertStatus(422)->assertJsonValidationErrors('nombre');
+        }
+        $this->como($this->director)->postJson('/api/grados', ['nombre' => 'PRIMER GRADO'])
+            ->assertStatus(422)->assertJsonPath('errors.nombre.0', 'El grado ya está registrado.');
+
+        // Sin uso, el nombre se puede corregir dentro del catálogo
+        $this->como($this->director)->putJson("/api/grados/{$id}", ['nombre' => 'Segundo grado'])
             ->assertOk()->assertJsonPath('grado.orden', 2);
-        $this->assertSame(2, Grado::find($id)->orden);
-
-        // Conservar el mismo orden al editar no choca consigo mismo
-        $this->como($this->director)->putJson("/api/grados/{$id}", ['nombre' => '1.º grado', 'orden' => 2])->assertOk();
+        $this->como($this->director)->putJson("/api/grados/{$id}", ['nombre' => 'Grado 2'])
+            ->assertStatus(422)->assertJsonValidationErrors('nombre');
+        $this->assertSame('Segundo grado', Grado::find($id)->nombre);
     }
 
-    public function test_orden_obligatorio_invalido_o_duplicado_se_rechaza(): void
+    public function test_un_grado_en_uso_no_cambia_de_nombre(): void
     {
-        Grado::create(['nombre' => 'Primer grado', 'orden' => 1]);
-        $legado = Grado::create(['nombre' => 'Parvularia 4']);
+        $grado = Grado::create(['nombre' => 'Primer grado']);
+        DB::table('plan_estudios')->insert([
+            'nombre' => 'Plan', 'estado' => true, 'fecha_inicio' => '2026-01-01', 'fecha_fin' => '2030-12-31',
+            'descripcion' => 'X', 'fecha_aprobacion' => '2025-12-01', 'grado_id' => $grado->id,
+        ]);
 
-        foreach ([null, '', 0, -3, 1.5, 'abc', 1000] as $valor) {
-            $this->como($this->director)->postJson('/api/grados', ['nombre' => 'Segundo grado', 'orden' => $valor])
-                ->assertStatus(422)->assertJsonValidationErrors('orden');
+        $this->como($this->director)->putJson("/api/grados/{$grado->id}", ['nombre' => 'Segundo grado'])->assertStatus(409);
+        // Guardar el mismo nombre sí se permite
+        $this->como($this->director)->putJson("/api/grados/{$grado->id}", ['nombre' => 'primer grado'])->assertOk();
+        $this->assertSame('Primer grado', $grado->fresh()->nombre);
+    }
+
+    public function test_catalogo_lista_los_grados_oficiales_y_los_registrados(): void
+    {
+        $grado = Grado::create(['nombre' => 'Tercer grado']);
+        $encargado = $this->usuario(User::ROL_ENCARGADO);
+
+        $catalogo = $this->como($encargado)->getJson('/api/grados/catalogo')->assertOk()->json('catalogo');
+        $this->assertSame(array_keys(CatalogoGrados::GRADOS), array_column($catalogo, 'nombre'));
+        $this->assertSame([-2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], array_column($catalogo, 'orden'));
+        $this->assertSame($grado->id, collect($catalogo)->firstWhere('nombre', 'Tercer grado')['grado_id']);
+        $this->assertNull(collect($catalogo)->firstWhere('nombre', 'Cuarto grado')['grado_id']);
+        $this->sinSesion()->getJson('/api/grados/catalogo')->assertStatus(401);
+    }
+
+    public function test_catalogo_reconoce_equivalentes_inequivocos_de_nombres_anteriores(): void
+    {
+        $casos = [
+            'Primer grado' => 'Primer grado', '1er grado' => 'Primer grado', '1° Grado' => 'Primer grado',
+            'Setimo grado' => 'Séptimo grado', '2.º año bachillerato' => 'Segundo año de bachillerato',
+            'Parvularia 4' => 'Parvularia 4 años', 'parvularia 6 años' => 'Parvularia 6 años',
+            '1er Año' => null, 'Kinder' => null, 'Parvularia' => null, 'Parvularia 3' => null, 'Décimo grado' => null,
+            'Tercer año de bachillerato' => null, // Bachillerato General: dos años
+        ];
+
+        foreach ($casos as $nombre => $esperado) {
+            $this->assertSame($esperado, CatalogoGrados::equivalente($nombre), "Nombre: '{$nombre}'");
         }
-        $this->como($this->director)->postJson('/api/grados', ['nombre' => 'Segundo grado'])
-            ->assertStatus(422)->assertJsonValidationErrors('orden');
-        $this->como($this->director)->postJson('/api/grados', ['nombre' => 'Segundo grado', 'orden' => 1])
-            ->assertStatus(422)->assertJsonValidationErrors('orden')
-            ->assertJsonPath('errors.orden.0', 'Ya existe un grado con ese orden académico.');
-
-        // Completar un grado heredado exige el orden
-        $this->como($this->director)->putJson("/api/grados/{$legado->id}", ['nombre' => 'Parvularia 4'])
-            ->assertStatus(422)->assertJsonValidationErrors('orden');
-        $this->assertSame(2, Grado::count());
+        // Solo el nombre oficial tiene orden
+        $this->assertNull(CatalogoGrados::orden('1er grado'));
+        $this->assertSame(1, CatalogoGrados::orden('primer GRADO'));
     }
 
     public function test_solo_el_director_escribe_y_los_demas_consultan(): void
     {
-        $grado = Grado::create(['nombre' => 'Primer grado', 'orden' => 1]);
+        $grado = Grado::create(['nombre' => 'Primer grado']);
 
         foreach ([User::ROL_DOCENTE, User::ROL_ENCARGADO] as $rol) {
             $cuenta = $this->usuario($rol);
             $this->como($cuenta)->getJson('/api/grados')->assertOk();
-            $this->como($cuenta)->postJson('/api/grados', ['nombre' => 'X', 'orden' => 5])->assertStatus(403);
-            $this->como($cuenta)->putJson("/api/grados/{$grado->id}", ['nombre' => 'X', 'orden' => 5])->assertStatus(403);
+            $this->como($cuenta)->postJson('/api/grados', ['nombre' => 'X'])->assertStatus(403);
+            $this->como($cuenta)->putJson("/api/grados/{$grado->id}", ['nombre' => 'X'])->assertStatus(403);
             $this->como($cuenta)->deleteJson("/api/grados/{$grado->id}")->assertStatus(403);
         }
         $this->sinSesion()->getJson('/api/grados')->assertStatus(401);
@@ -79,13 +120,14 @@ class GradosTest extends TestCase
     public function test_listado_en_orden_academico_con_pendientes_al_final(): void
     {
         // Ids en un orden distinto al académico
-        Grado::create(['nombre' => 'Noveno grado', 'orden' => 9]);
-        Grado::create(['nombre' => 'Parvularia 5']);
-        Grado::create(['nombre' => 'Primer grado', 'orden' => 1]);
-        Grado::create(['nombre' => 'Primer año de bachillerato', 'orden' => 10]);
+        Grado::create(['nombre' => 'Noveno grado']);
+        Grado::create(['nombre' => 'Parvularia 5 años']);
+        Grado::create(['nombre' => 'Primer grado']);
+        Grado::create(['nombre' => 'Primer año de bachillerato']);
+        DB::table('grados')->insert(['nombre' => 'Grado heredado']); // dato anterior fuera del catálogo
 
         $this->como($this->director)->getJson('/api/grados')->assertOk()
-            ->assertJsonPath('grados.*.nombre', ['Primer grado', 'Noveno grado', 'Primer año de bachillerato', 'Parvularia 5']);
+            ->assertJsonPath('grados.*.nombre', ['Parvularia 5 años', 'Primer grado', 'Noveno grado', 'Primer año de bachillerato', 'Grado heredado']);
     }
 
     public function test_promocion_sigue_el_orden_y_no_el_id(): void
@@ -94,9 +136,9 @@ class GradosTest extends TestCase
         $catalogos = $this->catalogosBasicos();
 
         // Se crean en desorden: el id de "Segundo" no es el de "Primero" + 1
-        $segundo = Grado::create(['nombre' => 'Segundo grado', 'orden' => 2]);
-        $tercero = Grado::create(['nombre' => 'Tercer grado', 'orden' => 3]);
-        $primero = Grado::create(['nombre' => 'Primer grado', 'orden' => 1]);
+        $segundo = Grado::create(['nombre' => 'Segundo grado']);
+        $tercero = Grado::create(['nombre' => 'Tercer grado']);
+        $primero = Grado::create(['nombre' => 'Primer grado']);
 
         $estudiante = $this->estudianteDe($encargado, $catalogos['distrito']);
         $this->matriculaAprobadaEn($estudiante, $catalogos, $primero);
@@ -110,9 +152,15 @@ class GradosTest extends TestCase
         $this->assertNull(Grado::find($primero->id + 1));
 
         // Un hueco en la numeración no impide encontrar el siguiente
-        $tercero->update(['orden' => 7]);
-        $segundo->update(['orden' => 5]);
-        $validar($segundo)->assertOk()->assertJsonPath('permitido', true);
+        $segundo->delete();
+        $validar($tercero)->assertOk()->assertJsonPath('permitido', true);
+
+        // De Parvularia 6 años se pasa a Primer grado
+        $parvularia = Grado::create(['nombre' => 'Parvularia 6 años']);
+        $otro = $this->estudianteDe($encargado, $catalogos['distrito']);
+        $this->matriculaAprobadaEn($otro, $catalogos, $parvularia);
+        $this->como($encargado)->postJson("/api/matriculas/validar-grado/{$otro->id}/{$primero->id}", ['ingreso' => 'Reingreso'])
+            ->assertOk()->assertJsonPath('permitido', true);
     }
 
     public function test_promocion_falla_controlada_sin_orden_o_sin_siguiente(): void
@@ -120,15 +168,15 @@ class GradosTest extends TestCase
         $encargado = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000001-8']);
         $catalogos = $this->catalogosBasicos();
 
-        $sinOrden = Grado::create(['nombre' => 'Grado heredado']);
-        $ultimo = Grado::create(['nombre' => 'Noveno grado', 'orden' => 9]);
-        $otro = Grado::create(['nombre' => 'Octavo grado', 'orden' => 8]);
+        $sinOrden = Grado::create(['nombre' => 'Grado heredado']); // dato anterior al catálogo
+        $ultimo = Grado::create(['nombre' => 'Noveno grado']);
+        $otro = Grado::create(['nombre' => 'Octavo grado']);
 
         $a = $this->estudianteDe($encargado, $catalogos['distrito']);
         $this->matriculaAprobadaEn($a, $catalogos, $sinOrden);
         $this->como($encargado)->postJson("/api/matriculas/validar-grado/{$a->id}/{$ultimo->id}", ['ingreso' => 'Reingreso'])
             ->assertStatus(422)->assertJsonPath('permitido', false)
-            ->assertJsonPath('message', 'No se puede determinar el grado siguiente: el grado anterior no tiene orden académico. El director debe completarlo.');
+            ->assertJsonPath('message', 'No se puede determinar el grado siguiente: el grado anterior no pertenece al catálogo oficial de grados.');
 
         $b = $this->estudianteDe($encargado, $catalogos['distrito']);
         $this->matriculaAprobadaEn($b, $catalogos, $ultimo);
@@ -153,42 +201,18 @@ class GradosTest extends TestCase
         }
     }
 
-    // Base con grados anteriores a M2.1: se deshace la migración, se cargan y se vuelve a aplicar
-    public function test_migracion_conserva_grados_y_solo_infiere_nombres_inequivocos(): void
+    public function test_comando_lista_grados_fuera_del_catalogo(): void
     {
-        $pasos = DB::table('migrations')->where('migration', '>=', '2026_10_11_000001_add_orden_to_grados_table')->count();
-        Artisan::call('migrate:rollback', ['--step' => $pasos]);
-        $this->assertFalse(Schema::hasColumn('grados', 'orden'));
-
-        $g = fn ($nombre) => DB::table('grados')->insertGetId(['nombre' => $nombre, 'created_at' => now(), 'updated_at' => now()]);
-        $tercero = $g('Tercer grado');
-        $primero = $g('1.º grado');
-        $ambiguo = $g('1er Año');
-        $parvularia = $g('Parvularia 6');
-        $dup1 = $g('Segundo grado');      // dos nombres que apuntan al 2: ninguno lo recibe
-        $dup2 = $g('2do grado');
-        $bachi = $g('Primer año de bachillerato');
-
-        Artisan::call('migrate');
-
-        $orden = DB::table('grados')->pluck('orden', 'id');
-        $this->assertSame(7, $orden->count());
-        $this->assertSame(3, (int) $orden[$tercero]);
-        $this->assertSame(1, (int) $orden[$primero]);
-        $this->assertSame(10, (int) $orden[$bachi]);
-        foreach ([$ambiguo, $parvularia, $dup1, $dup2] as $id) {
-            $this->assertNull($orden[$id]);
+        foreach (['Tercer grado', '1er Año', 'Parvularia 6'] as $nombre) {
+            Grado::create(['nombre' => $nombre]);
         }
-        // Los nombres no cambian
-        $this->assertSame('1er Año', DB::table('grados')->where('id', $ambiguo)->value('nombre'));
 
         Artisan::call('siga:grados-sin-orden');
         $salida = Artisan::output();
-        foreach (['1er Año', 'Parvularia 6', 'Segundo grado', '2do grado'] as $nombre) {
-            $this->assertStringContainsString($nombre, $salida);
-        }
+        $this->assertStringContainsString('1er Año', $salida);
+        $this->assertStringContainsString('Parvularia 6 años', $salida); // equivalente sugerido
         $this->assertStringNotContainsString('Tercer grado', $salida);
-        $this->assertStringContainsString('4 grado(s) requieren', $salida);
+        $this->assertStringContainsString('2 grado(s)', $salida);
     }
 
     private function matriculaAprobadaEn($estudiante, array $catalogos, Grado $grado): void
@@ -199,14 +223,14 @@ class GradosTest extends TestCase
             'codigo' => 'P'.$usuarioProfe->id, 'telefono' => (string) (70000000 + $usuarioProfe->id), 'direccion' => 'X', 'user_id' => $usuarioProfe->id,
         ]);
         $seccion = DB::table('secciones')->insertGetId([
-            'nombre' => 'A', 'capacidad' => 30, 'turno' => 'matutino', 'anio' => now()->year - 1,
+            'nombre' => 'A', 'capacidad' => 30, 'turno' => 'matutino',
             'grado_id' => $grado->id, 'profesor_id' => $profesor,
         ]);
         $matricula = $this->matriculaDe($estudiante, $catalogos, [
-            'anio' => (string) (now()->year - 1), 'estado' => 'aprobado', 'seccion_id' => $seccion,
+            'estado' => 'aprobado', 'seccion_id' => $seccion,
         ]);
         DB::table('notas_anuales')->insert([
-            'matricula_id' => $matricula, 'promedio_anual' => 8.5, 'fecha_cierre' => (now()->year - 1).'-11-30', 'estado' => 'Aprobada',
+            'matricula_id' => $matricula, 'promedio_anual' => 8.5, 'estado' => 'Aprobada',
         ]);
     }
 }

@@ -13,7 +13,7 @@ class PlanEstudioService
 {
     public function listar(array $filtros = [])
     {
-        $consulta = PlanEstudio::with(['grado:id,nombre,orden', 'especialidad:id,nombre'])
+        $consulta = PlanEstudio::with(['grado:id,nombre', 'especialidad:id,nombre'])
             ->withCount('asignaturas')
             ->orderByDesc('estado')
             ->orderBy('nombre');
@@ -33,7 +33,7 @@ class PlanEstudioService
 
     public function obtener($id)
     {
-        return PlanEstudio::with(['grado:id,nombre,orden', 'especialidad:id,nombre', 'asignaturas' => fn ($q) => $q->orderBy('nombre')])
+        return PlanEstudio::with(['grado:id,nombre', 'especialidad:id,nombre', 'asignaturas' => fn ($q) => $q->orderBy('nombre')])
             ->findOrFail($id);
     }
 

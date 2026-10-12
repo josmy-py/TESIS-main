@@ -11,7 +11,6 @@ class NotaFinal extends Model
     protected $fillable = [
         'matricula_id',
         'promedio_anual',
-        'fecha_cierre',
         'estado',
     ];
 

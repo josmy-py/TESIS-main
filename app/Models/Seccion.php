@@ -12,7 +12,6 @@ class Seccion extends Model
         'nombre',
         'capacidad',
         'turno',
-        'anio',
         'anio_lectivo_id',
         'grado_id',
         'profesor_id',

@@ -87,7 +87,6 @@ trait DatosM1
     {
         return DB::table('matriculas')->insertGetId(array_merge([
             'ingreso' => 'Nuevo ingreso',
-            'anio' => (string) now()->year,
             'estado' => 'pendiente',
             'foto' => '/storage/foto/x.jpg',
             'es_trasladado' => false,

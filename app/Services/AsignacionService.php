@@ -21,8 +21,8 @@ class AsignacionService
 
     public function crear(array $datos)
     {
+        // El año de la asignación es el de su sección (secciones.anio_lectivo_id)
         $existe = Asignacion::where('profesor_id', $datos['profesor_id'])
-            ->where('anio', $datos['anio'])
             ->where('asignatura_id', $datos['asignatura_id'])
             ->where('seccion_id', $datos['seccion_id'])
             ->exists();
@@ -32,7 +32,6 @@ class AsignacionService
         }
 
         return Asignacion::create([
-            'anio' => $datos['anio'],
             'profesor_id' => $datos['profesor_id'],
             'asignatura_id' => $datos['asignatura_id'],
             'seccion_id' => $datos['seccion_id'],

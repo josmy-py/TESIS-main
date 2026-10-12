@@ -29,8 +29,8 @@ class PlanEstudioTest extends TestCase
         parent::setUp();
         $this->sembrarRoles();
         $this->director = $this->usuario(User::ROL_DIRECTOR);
-        $this->primero = Grado::create(['nombre' => 'Primer grado', 'orden' => 1]);
-        $this->segundo = Grado::create(['nombre' => 'Segundo grado', 'orden' => 2]);
+        $this->primero = Grado::create(['nombre' => 'Primer grado']);
+        $this->segundo = Grado::create(['nombre' => 'Segundo grado']);
     }
 
     private function datosPlan(array $cambios = []): array
@@ -63,11 +63,11 @@ class PlanEstudioTest extends TestCase
             'telefono' => '70000000', 'direccion' => 'X', 'user_id' => $docente->id,
         ]);
         $seccion = DB::table('secciones')->insertGetId([
-            'nombre' => 'A', 'capacidad' => 30, 'turno' => 'matutino', 'anio' => 2026,
+            'nombre' => 'A', 'capacidad' => 30, 'turno' => 'matutino',
             'grado_id' => $asignatura->planEstudio->grado_id, 'profesor_id' => $profesor,
         ]);
         DB::table('asignaciones')->insert([
-            'anio' => 2026, 'profesor_id' => $profesor, 'asignatura_id' => $asignatura->id, 'seccion_id' => $seccion,
+            'profesor_id' => $profesor, 'asignatura_id' => $asignatura->id, 'seccion_id' => $seccion,
         ]);
     }
 
@@ -84,7 +84,7 @@ class PlanEstudioTest extends TestCase
 
     public function test_plan_de_bachillerato_con_especialidad(): void
     {
-        $bachillerato = Grado::create(['nombre' => 'Primer año de bachillerato', 'orden' => 10]);
+        $bachillerato = Grado::create(['nombre' => 'Primer año de bachillerato']);
         $especialidad = DB::table('especialidades')->insertGetId(['nombre' => 'Bachillerato General']);
 
         $plan = $this->crearPlan(['grado_id' => $bachillerato->id, 'especialidad_id' => $especialidad]);
@@ -101,7 +101,7 @@ class PlanEstudioTest extends TestCase
 
         $this->como($this->director)->postJson('/api/plan-estudios', $this->datosPlan([
             'nombre' => str_repeat('a', 31), 'grado_id' => 999, 'especialidad_id' => 999,
-            'fecha_fin' => '2026-01-01', 'descripcion' => str_repeat('d', 101),
+            'fecha_fin' => '2026-01-01', 'descripcion' => str_repeat('d', 201),
         ]))->assertStatus(422)->assertJsonValidationErrors(['nombre', 'grado_id', 'especialidad_id', 'fecha_fin', 'descripcion']);
     }
 
