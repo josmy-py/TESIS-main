@@ -152,6 +152,12 @@ class GradoController extends Controller
                 ], 409);
             }
 
+            if ($grado->planesEstudio()->exists()) {
+                return response()->json([
+                    'message' => 'No se puede eliminar el grado porque tiene planes de estudio asociados'
+                ], 409);
+            }
+
             $grado->delete();
             return response()->json(['message' => 'Grado eliminado exitosamente'], 200);
         } catch (ModelNotFoundException $e) {

@@ -15,6 +15,7 @@ use App\Http\Controllers\ProfesorController;
 use App\Http\Controllers\MatriculaController;
 use App\Http\Controllers\PadreController;
 use App\Http\Controllers\PeriodoEscolarController;
+use App\Http\Controllers\PlanEstudioController;
 use App\Http\Controllers\ParienteController;
 use App\Http\Controllers\UbicacionController;
 use App\Http\Controllers\UsuarioController;
@@ -49,6 +50,9 @@ Route::middleware(['auth:api', 'activo'])->group(function () {
     Route::apiResource('especialidades', EspecialidadController::class)->only(['index', 'show']);
     Route::apiResource('discapacidades', DiscapacidadController::class)->only(['index', 'show']);
     Route::apiResource('enfermedades', EnfermedadController::class)->only(['index', 'show']);
+    // M2.3: plan de estudios y asignaturas (pensum por grado)
+    Route::apiResource('plan-estudios', PlanEstudioController::class)->only(['index', 'show']);
+    Route::apiResource('asignaturas', AsignaturaController::class)->only(['index', 'show']);
 
     // División territorial (M2.1.5): antes era pública; ahora requiere sesión como el resto de catálogos
     Route::get('departamentos', [UbicacionController::class, 'departamentos']);
@@ -98,7 +102,8 @@ Route::middleware(['auth:api', 'activo', 'role:DIRECTOR'])->group(function () {
 
     // Aprobar o rechazar matrículas es una acción del Director
     Route::put('matriculas/{id}/estado', [MatriculaController::class, 'estadoMatricula']);
-    Route::apiResource('asignaturas', AsignaturaController::class);
+    Route::apiResource('plan-estudios', PlanEstudioController::class)->only(['store', 'update', 'destroy']);
+    Route::apiResource('asignaturas', AsignaturaController::class)->only(['store', 'update', 'destroy']);
     Route::apiResource('grados', GradoController::class)->only(['store', 'update', 'destroy']);
     Route::apiResource('especialidades', EspecialidadController::class)->only(['store', 'update', 'destroy']);
     Route::apiResource('discapacidades', DiscapacidadController::class)->only(['store', 'update', 'destroy']);

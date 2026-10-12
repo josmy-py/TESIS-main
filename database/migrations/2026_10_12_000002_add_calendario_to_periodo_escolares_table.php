@@ -54,12 +54,19 @@ return new class extends Migration
 
     public function down(): void
     {
+        // En MySQL 8 la clave foránea usa el índice único (anio_lectivo_id, numero):
+        // se quita primero la clave foránea y después los índices y columnas
+        Schema::withoutForeignKeyConstraints(function () {
+            Schema::table('periodo_escolares', function (Blueprint $table) {
+                $table->dropForeign(['anio_lectivo_id']);
+            });
+        });
+
         Schema::withoutForeignKeyConstraints(function () {
             Schema::table('periodo_escolares', function (Blueprint $table) {
                 $table->dropUnique(['anio_lectivo_id', 'numero']);
                 $table->dropUnique(['abierto_en']);
-                $table->dropConstrainedForeignId('anio_lectivo_id');
-                $table->dropColumn(['numero', 'fecha_inicio', 'fecha_fin', 'estado', 'abierto_en']);
+                $table->dropColumn(['anio_lectivo_id', 'numero', 'fecha_inicio', 'fecha_fin', 'estado', 'abierto_en']);
             });
         });
         // "nivel" queda admitiendo NULL: volver a NOT NULL fallaría con periodos creados por M2.2

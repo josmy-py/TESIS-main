@@ -22,6 +22,12 @@ class Grado extends Model
         return $this->hasMany(Seccion::class);
     }
 
+    // Planes de estudio del grado (M2.3); sus asignaturas forman el pensum
+    public function planesEstudio()
+    {
+        return $this->hasMany(PlanEstudio::class);
+    }
+
     // Orden académico; los grados heredados sin orden van al final
     public function scopeOrdenAcademico(Builder $query): Builder
     {

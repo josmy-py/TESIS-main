@@ -10,6 +10,7 @@ class PlanEstudio extends Model
 
     protected $fillable = [
         'nombre',
+        'grado_id',
         'especialidad_id',
         'estado',
         'fecha_inicio',
@@ -17,6 +18,19 @@ class PlanEstudio extends Model
         'descripcion',
         'fecha_aprobacion',
     ];
+
+    // estado = plan vigente (true) o no vigente (false)
+    protected $casts = [
+        'estado' => 'boolean',
+        'fecha_inicio' => 'date:Y-m-d',
+        'fecha_fin' => 'date:Y-m-d',
+        'fecha_aprobacion' => 'date:Y-m-d',
+    ];
+
+    public function grado()
+    {
+        return $this->belongsTo(Grado::class, 'grado_id');
+    }
 
     public function especialidad()
     {

@@ -10,13 +10,29 @@ use Illuminate\Validation\ValidationException;
 
 class AsignaturaController extends Controller
 {
+    private const MENSAJES = [
+        'plan_estudio_id.required' => 'El plan de estudio es obligatorio.',
+        'plan_estudio_id.exists' => 'El plan de estudio seleccionado no es válido.',
+        'nombre.required' => 'El nombre de la asignatura es obligatorio.',
+        'nombre.max' => 'El nombre de la asignatura no debe exceder los 50 caracteres.',
+        'nombre.unique' => 'La asignatura ya existe en ese plan de estudio.',
+    ];
+
     /**
      * Display a listing of the resource.
+     * Filtros opcionales: plan_estudio_id, o grado_id (pensum vigente del grado).
      */
-    public function index()
+    public function index(Request $request)
     {
         try {
-            $asignatura = Asignatura::orderBy('id', 'desc')->get();
+            $asignatura = Asignatura::with('planEstudio:id,nombre,grado_id,especialidad_id,estado')
+                ->when($request->query('plan_estudio_id'), fn ($q, $planId) => $q->where('plan_estudio_id', $planId))
+                ->when($request->query('grado_id'), fn ($q, $gradoId) => $q->whereHas(
+                    'planEstudio',
+                    fn ($plan) => $plan->where('grado_id', $gradoId)->where('estado', true)
+                ))
+                ->orderBy('nombre')
+                ->get();
             return response()->json(['asignaturas' => $asignatura], 200);
         } catch (\Exception $e) {
             report($e);
@@ -34,15 +50,19 @@ class AsignaturaController extends Controller
     {
         try {
             $request->validate([
-                'nombre' => 'required|string|max:50|unique:asignaturas,nombre',
-            ],
-            [
-                'nombre.required' => 'El nombre de la asigantura es obligatorio.',
-                'nombre.unique' => 'El nombre de la asignatura ya existe.',
-            ]);
+                'plan_estudio_id' => 'required|integer|exists:plan_estudios,id',
+                // M2.3: el nombre es único dentro de cada plan (cada grado tiene su "Matemática")
+                'nombre' => [
+                    'required',
+                    'string',
+                    'max:50',
+                    Rule::unique('asignaturas', 'nombre')->where('plan_estudio_id', $request->plan_estudio_id),
+                ],
+            ], self::MENSAJES);
 
             $asignatura = Asignatura::create([
                 'nombre' => $request->nombre,
+                'plan_estudio_id' => $request->plan_estudio_id,
             ]);
 
             return response()->json(['message' => 'Asignatura registrada exitosamente', 'asignatura' => $asignatura], 201);
@@ -84,19 +104,23 @@ class AsignaturaController extends Controller
             $asignatura = Asignatura::findOrFail($id);
 
             $request->validate([
+                'plan_estudio_id' => 'required|integer|exists:plan_estudios,id',
                 'nombre' => [
                     'required',
                     'string',
                     'max:50',
-                    Rule::unique('asignaturas', 'nombre')->ignore($id)
+                    Rule::unique('asignaturas', 'nombre')->where('plan_estudio_id', $request->plan_estudio_id)->ignore($id),
                 ],
-            ],
-            [
-                'nombre.unique' => 'El nombre de la asignatura ya existe.',
-            ]);
+            ], self::MENSAJES);
+
+            // Con carga académica, moverla de plan cambiaría el pensum de esas secciones
+            if ((int) $asignatura->plan_estudio_id !== (int) $request->plan_estudio_id && $asignatura->asignaciones()->exists()) {
+                return response()->json(['message' => 'No se puede cambiar el plan de la asignatura porque tiene asignaciones asociadas'], 409);
+            }
 
             $asignatura->update([
                 'nombre' => $request->nombre,
+                'plan_estudio_id' => $request->plan_estudio_id,
             ]);
 
             return response()->json(['message' => 'Asignatura actualizada exitosamente', 'asignatura' => $asignatura], 200);
@@ -126,7 +150,7 @@ class AsignaturaController extends Controller
         try {
             $asignatura = Asignatura::with('asignaciones')->findOrFail($id);
             if ($asignatura->asignaciones()->exists()) {
-                return response()->json(['message' => 'No se puede eliminar la asignatura porque tiene asignaciones asociadas'], 400);
+                return response()->json(['message' => 'No se puede eliminar la asignatura porque tiene asignaciones asociadas'], 409);
             }
 
             $asignatura->delete();
