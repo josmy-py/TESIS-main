@@ -72,3 +72,31 @@ Artisan::command('siga:diagnostico-calendario', function () {
         ? $this->info('No hay registros pendientes de revisión.')
         : $this->warn("{$total} registro(s) requieren revisión manual. Nada se modificó.");
 })->purpose('Lista los datos del calendario escolar que requieren intervención');
+
+// M4: asignaciones que impiden el índice único (D-A2) o que no cumplen las reglas
+// de pensum y de un plan por sección (D-A1). Solo lee; no modifica nada.
+Artisan::command('siga:diagnostico-asignaciones', function () {
+    $secciones = [
+        'duplicadas' => ['Misma materia repetida en una sección (impide el índice único)', ['seccion_id', 'asignatura_id', 'total', 'primera_id']],
+        'fuera_de_pensum' => ['Materias que no son del pensum del grado de la sección', ['id', 'seccion_id', 'asignatura_id', 'grado_seccion', 'grado_plan']],
+        'secciones_con_varios_planes' => ['Secciones con materias de más de un plan', ['seccion_id', 'planes']],
+    ];
+
+    $diagnostico = app(\App\Services\AsignacionService::class)->diagnostico();
+    $total = 0;
+
+    foreach ($secciones as $clave => [$titulo, $columnas]) {
+        $filas = $diagnostico[$clave];
+        $total += count($filas);
+        $this->line('');
+        $this->info($titulo.': '.count($filas));
+        if (count($filas) > 0) {
+            $this->table($columnas, array_map(fn ($fila) => array_map(fn ($c) => $fila[$c] ?? '(vacío)', $columnas), $filas));
+        }
+    }
+
+    $this->line('');
+    $total === 0
+        ? $this->info('Las asignaciones cumplen las reglas de M4.')
+        : $this->warn("{$total} caso(s) para revisar manualmente. No se modificó nada.");
+})->purpose('Revisa las asignaciones existentes contra las reglas de M4');

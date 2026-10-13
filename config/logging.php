@@ -73,6 +73,15 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // M4 (D-A3): bitácora de altas, bajas y cambios de docente de la carga académica
+        'asignaciones' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/asignaciones.log'),
+            'level' => 'info',
+            'days' => env('LOG_ASIGNACIONES_DAYS', 0),
+            'replace_placeholders' => true,
+        ],
+
         'slack' => [
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),

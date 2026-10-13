@@ -51,6 +51,7 @@ class CalendarioMigracionTest extends TestCase
             'telefono' => '70000000', 'direccion' => 'X', 'user_id' => $docente->id,
         ]);
         $asignatura = DB::table('asignaturas')->insertGetId($this->filaAsignatura());
+        $otraAsignatura = DB::table('asignaturas')->insertGetId($this->filaAsignatura('Matemática'));
 
         $seccion = fn ($nombre, $anio) => DB::table('secciones')->insertGetId([
             'nombre' => $nombre, 'capacidad' => 30, 'turno' => 'matutino', 'anio' => $anio, 'grado_id' => $grado, 'profesor_id' => $profesor,
@@ -68,7 +69,7 @@ class CalendarioMigracionTest extends TestCase
 
         DB::table('asignaciones')->insert([
             ['anio' => 2026, 'profesor_id' => $profesor, 'asignatura_id' => $asignatura, 'seccion_id' => $s2026],
-            ['anio' => 2025, 'profesor_id' => $profesor, 'asignatura_id' => $asignatura, 'seccion_id' => $s2026], // no coincide
+            ['anio' => 2025, 'profesor_id' => $profesor, 'asignatura_id' => $otraAsignatura, 'seccion_id' => $s2026], // no coincide
         ]);
         $asignacionDistinta = DB::table('asignaciones')->where('anio', 2025)->value('id');
 
@@ -163,13 +164,13 @@ class CalendarioMigracionTest extends TestCase
         ];
     }
 
-    private function filaAsignatura(): array
+    private function filaAsignatura(string $nombre = 'Lenguaje'): array
     {
         $plan = DB::table('plan_estudios')->insertGetId([
             'nombre' => 'Plan', 'estado' => true, 'fecha_inicio' => '2025-01-01', 'fecha_fin' => '2026-12-31',
             'descripcion' => 'X', 'fecha_aprobacion' => '2024-12-01', 'especialidad_id' => DB::table('especialidades')->value('id'),
         ]);
 
-        return ['nombre' => 'Lenguaje', 'plan_estudio_id' => $plan];
+        return ['nombre' => $nombre, 'plan_estudio_id' => $plan];
     }
 }

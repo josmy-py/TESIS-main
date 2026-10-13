@@ -4,6 +4,10 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * M4: un docente imparte una materia en una sección; el año lectivo es el de
+ * la sección. Una materia de una sección tiene un solo docente (índice único).
+ */
 class Asignacion extends Model
 {
     protected $table = 'asignaciones';
@@ -12,7 +16,12 @@ class Asignacion extends Model
         'profesor_id',
         'asignatura_id',
         'seccion_id',
+    ];
 
+    protected $casts = [
+        'profesor_id' => 'integer',
+        'asignatura_id' => 'integer',
+        'seccion_id' => 'integer',
     ];
 
     public function profesor()

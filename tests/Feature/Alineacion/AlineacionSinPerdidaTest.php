@@ -24,7 +24,7 @@ class AlineacionSinPerdidaTest extends TestCase
 {
     use DatabaseMigrations, DatosM1;
 
-    private const ALINEACION = 2; // migraciones 000007 y 000008
+    private const ALINEACION = 3; // migraciones 000007, 000008 y 000009 (índice único de M4)
 
     private const INFRAESTRUCTURA = [
         'cache', 'cache_locks', 'failed_jobs', 'job_batches', 'jobs', 'migrations', 'password_reset_tokens', 'sessions',

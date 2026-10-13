@@ -16,6 +16,7 @@ class DatabaseSeeder extends Seeder
             UsuarioPruebaSeeder::class,
             ProfesorPruebaSeeder::class,
             SeccionPruebaSeeder::class,
+            AsignacionPruebaSeeder::class,
             GeografiaElSalvadorSeeder::class,
         ]);
     }

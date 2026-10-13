@@ -125,5 +125,12 @@ Route::middleware(['auth:api', 'activo', 'role:DIRECTOR'])->group(function () {
     Route::post('periodos-escolares/{id}/reabrir', [PeriodoEscolarController::class, 'reabrir'])->whereNumber('id');
     Route::apiResource('secciones', SeccionController::class);
     Route::apiResource('profesores', ProfesorController::class);
-    Route::apiResource('asignaciones', AsignacionController::class)->except(['update']);
+    // M4: asignación académica (PUT solo cambia el docente; la carga de un docente se guarda de una vez)
+    Route::apiResource('asignaciones', AsignacionController::class);
+    Route::put('profesores/{id}/carga', [AsignacionController::class, 'guardarCarga'])->whereNumber('id');
+});
+
+// M4: cada docente consulta su propia carga académica (tesis, págs. 58 y 68)
+Route::middleware(['auth:api', 'activo', 'role:DOCENTE'])->group(function () {
+    Route::get('docente/carga', [AsignacionController::class, 'miCarga']);
 });
