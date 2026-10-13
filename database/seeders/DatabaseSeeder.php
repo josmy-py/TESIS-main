@@ -15,6 +15,7 @@ class DatabaseSeeder extends Seeder
             RoleSeeder::class,
             UsuarioPruebaSeeder::class,
             ProfesorPruebaSeeder::class,
+            SeccionPruebaSeeder::class,
             GeografiaElSalvadorSeeder::class,
         ]);
     }

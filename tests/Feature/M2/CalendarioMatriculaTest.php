@@ -78,8 +78,8 @@ class CalendarioMatriculaTest extends TestCase
         $this->seccion(['anio_lectivo_id' => $anio->id])->assertCreated()
             ->assertJsonPath('seccion.anio_lectivo_id', $anio->id);
 
-        // El mismo nombre en el mismo año se rechaza; en otro año está permitido
-        $this->seccion(['anio_lectivo_id' => $anio->id])->assertStatus(400);
+        // El mismo nombre en el mismo año se rechaza (409, M2.4); en otro año está permitido
+        $this->seccion(['anio_lectivo_id' => $anio->id])->assertStatus(409);
         $otro = $this->anio('2028');
         $this->seccion(['anio_lectivo_id' => $otro->id])->assertCreated();
 
