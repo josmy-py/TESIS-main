@@ -8,6 +8,10 @@ class Padre extends Model
 {
     protected $table = 'padres';
 
+    protected $casts = [
+        'user_id' => 'integer',
+    ];
+
     protected $fillable = [
         'nombre',
         'dui',

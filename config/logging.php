@@ -82,6 +82,15 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // M5: cambios de cuenta, vínculos familiares autorizados y eliminaciones
+        'familias' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/familias.log'),
+            'level' => 'info',
+            'days' => env('LOG_FAMILIAS_DAYS', 0),
+            'replace_placeholders' => true,
+        ],
+
         'slack' => [
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),

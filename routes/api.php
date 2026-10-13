@@ -9,6 +9,7 @@ use App\Http\Controllers\GradoController;
 use App\Http\Controllers\SeccionController;
 use App\Http\Controllers\DiscapacidadController;
 use App\Http\Controllers\EspecialidadController;
+use App\Http\Controllers\EncargadoController;
 use App\Http\Controllers\EnfermedadController;
 use App\Http\Controllers\EstudianteController;
 use App\Http\Controllers\ProfesorController;
@@ -74,9 +75,14 @@ Route::middleware(['auth:api', 'activo'])->group(function () {
 // Los controladores limitan al ENCARGADO a los registros de su propia cuenta.
 Route::middleware(['auth:api', 'activo', 'role:ENCARGADO|DIRECTOR'])->group(function () {
     Route::post('padres/buscar-dui', [PadreController::class, 'buscarPorDui']);
-    Route::apiResource('estudiantes', EstudianteController::class)->only(['store', 'update']);
-    Route::apiResource('padres', PadreController::class)->only(['store']);
+    // M5: estudiantes y familia (D3). El encargado solo ve lo de su cuenta.
+    Route::get('familia/perfil', [EncargadoController::class, 'perfil']);
+    Route::apiResource('estudiantes', EstudianteController::class);
+    Route::post('estudiantes/{id}/padres', [ParienteController::class, 'vincular'])->whereNumber('id');
+    Route::delete('estudiantes/{id}/padres/{padre}', [ParienteController::class, 'desvincular'])->whereNumber(['id', 'padre']);
+    Route::apiResource('padres', PadreController::class)->only(['index', 'show', 'store', 'update']);
     Route::apiResource('parientes', ParienteController::class)->only(['store']);
+    Route::apiResource('encargados', EncargadoController::class)->only(['index', 'show', 'store', 'update']);
 
     // Métodos adicionales de matrículas: se declaran antes del apiResource
     // para que matriculas/{matricula} no capture rutas como estudiantes-inscritos
@@ -100,6 +106,10 @@ Route::middleware(['auth:api', 'activo', 'role:DIRECTOR'])->group(function () {
     Route::patch('usuarios/{id}/estado', [UsuarioController::class, 'cambiarEstado']);
     Route::post('usuarios/{id}/reenviar-enlace', [UsuarioController::class, 'reenviarEnlace']);
     Route::delete('usuarios/{id}', [UsuarioController::class, 'destroy']);
+
+    // M5: D-E3 cambio de cuenta del estudiante; eliminar encargados sin matrículas
+    Route::put('estudiantes/{id}/cuenta', [EstudianteController::class, 'cambiarCuenta'])->whereNumber('id');
+    Route::delete('encargados/{encargado}', [EncargadoController::class, 'destroy']);
 
     // Aprobar o rechazar matrículas es una acción del Director
     Route::put('matriculas/{id}/estado', [MatriculaController::class, 'estadoMatricula']);

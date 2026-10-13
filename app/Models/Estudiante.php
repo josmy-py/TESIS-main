@@ -8,6 +8,11 @@ class Estudiante extends Model
 {
     protected $table = 'estudiantes';
 
+    protected $casts = [
+        'user_id' => 'integer',
+        'distrito_id' => 'integer',
+    ];
+
     protected $fillable = [
         'nombre',
         'genero',
@@ -46,5 +51,10 @@ class Estudiante extends Model
     public function matriculas()
     {
         return $this->hasMany(Matricula::class);
+    }
+
+    public function ultimaMatricula()
+    {
+        return $this->hasOne(Matricula::class)->latestOfMany();
     }
 }

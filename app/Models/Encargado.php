@@ -8,6 +8,10 @@ class Encargado extends Model
 {
     protected $table = 'encargados';
 
+    protected $casts = [
+        'user_id' => 'integer',
+    ];
+
     protected $fillable = [
         'nombre',
         'parentesco',

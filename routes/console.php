@@ -100,3 +100,36 @@ Artisan::command('siga:diagnostico-asignaciones', function () {
         ? $this->info('Las asignaciones cumplen las reglas de M4.')
         : $this->warn("{$total} caso(s) para revisar manualmente. No se modificó nada.");
 })->purpose('Revisa las asignaciones existentes contra las reglas de M4');
+
+// M5: datos familiares que no cumplen las reglas nuevas (una persona por DUI,
+// un Padre y una Madre por estudiante, NIE numérico). Solo lee; no modifica nada.
+Artisan::command('siga:diagnostico-familias', function () {
+    $secciones = [
+        'padres_dui_repetido' => ['Padres o madres con el mismo DUI', ['tabla', 'dui', 'ids']],
+        'encargados_dui_repetido' => ['Encargados con el mismo DUI', ['tabla', 'dui', 'ids']],
+        'vinculos_repetidos' => ['Mismo padre vinculado dos veces al estudiante', ['estudiante_id', 'padre_id', 'total']],
+        'parentesco_repetido' => ['Estudiantes con más de un Padre o más de una Madre', ['estudiante_id', 'parentesco', 'total']],
+        'nie_no_valido' => ['NIE con formato no válido (solo números, hasta 10)', ['id', 'nombre', 'nie']],
+        'dui_distinto_de_la_cuenta' => ['Perfiles cuyo DUI no coincide con el de su cuenta', ['tabla', 'id', 'dui', 'dui_cuenta', 'email']],
+    ];
+
+    $servicio = app(\App\Services\DiagnosticoFamiliasService::class);
+    $diagnostico = $servicio->ejecutar();
+    $total = 0;
+
+    foreach ($secciones as $clave => [$titulo, $columnas]) {
+        $filas = $diagnostico[$clave];
+        $total += count($filas);
+        $this->line('');
+        $this->info($titulo.': '.count($filas));
+        if (count($filas) > 0) {
+            $this->table($columnas, array_map(fn ($fila) => array_map(fn ($c) => $fila[$c] ?? '(vacío)', $columnas), $filas));
+        }
+    }
+
+    $this->line('');
+    $this->line('Informativo: padres sin cuenta ni estudiantes (solo la dirección los vincula): '.$servicio->padresSinVinculo());
+    $total === 0
+        ? $this->info('Los datos familiares cumplen las reglas de M5.')
+        : $this->warn("{$total} caso(s) para revisar manualmente. No se modificó nada.");
+})->purpose('Revisa estudiantes, padres y encargados contra las reglas de M5');
