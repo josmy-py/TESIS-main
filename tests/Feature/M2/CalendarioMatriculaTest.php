@@ -4,6 +4,8 @@ namespace Tests\Feature\M2;
 
 use App\Models\AnioLectivo;
 use App\Models\Grado;
+use App\Models\Padre;
+use App\Models\PlanEstudio;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -14,6 +16,8 @@ use Tests\TestCase;
 
 /**
  * M2.2: secciones y matrículas usan el año lectivo, no el reloj del servidor.
+ * Desde M6.1 la solicitud exige sección, plan vigente del grado, responsable
+ * y partida para Nuevo ingreso (ver tests/Feature/M6).
  */
 class CalendarioMatriculaTest extends TestCase
 {
@@ -24,11 +28,13 @@ class CalendarioMatriculaTest extends TestCase
     private array $catalogos;
     private Grado $grado;
     private int $profesor;
+    private Padre $padre;
 
     protected function setUp(): void
     {
         parent::setUp();
         Storage::fake('public');
+        Storage::fake('matriculas');
         $this->sembrarRoles();
         $this->director = $this->usuario(User::ROL_DIRECTOR);
         $this->encargado = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000001-8']);
@@ -40,6 +46,11 @@ class CalendarioMatriculaTest extends TestCase
             'nombre' => 'Profe', 'dui' => '00000002-6', 'fecha_nacimiento' => '1990-01-01', 'codigo' => 'P1',
             'telefono' => '70000000', 'direccion' => 'X', 'user_id' => $docente->id,
         ]);
+
+        // M6.1: plan vigente del grado (sin especialidad) y la cuenta como padre (responsable, D-M1)
+        PlanEstudio::create(['nombre' => 'Plan Primer grado', 'grado_id' => $this->grado->id, 'especialidad_id' => null, 'estado' => true,
+            'fecha_inicio' => '2026-01-15', 'fecha_fin' => '2030-11-30', 'fecha_aprobacion' => '2025-12-01', 'descripcion' => 'Pensum']);
+        $this->padre = Padre::create(['nombre' => $this->encargado->nombre, 'dui' => '00000001-8', 'user_id' => $this->encargado->id]);
     }
 
     private function anio(string $nombre, string $estado = AnioLectivo::INACTIVO): AnioLectivo
@@ -60,13 +71,14 @@ class CalendarioMatriculaTest extends TestCase
     private function matricular(array $datos = [])
     {
         $estudiante = $this->estudianteDe($this->encargado, $this->catalogos['distrito']);
+        $estudiante->padres()->attach($this->padre->id, ['parentesco' => 'Padre']);
 
         return $this->como($this->encargado)->post('/api/matriculas', $datos + [
             'ingreso' => 'Nuevo ingreso',
             'estudiante_id' => $estudiante->id,
             'enfermedad_id' => $this->catalogos['enfermedad'],
-            'especialidad_id' => $this->catalogos['especialidad'],
             'foto' => UploadedFile::fake()->image('foto.jpg'),
+            'documento' => UploadedFile::fake()->create('partida.pdf', 10, 'application/pdf'),
             'es_trasladado' => 0,
         ], ['Accept' => 'application/json']);
     }
@@ -125,14 +137,15 @@ class CalendarioMatriculaTest extends TestCase
 
     public function test_matricula_toma_el_anio_lectivo_y_valida_la_seccion(): void
     {
+        $inactivo = $this->anio((string) (now()->year + 2));
+        $seccionInactivo = $this->seccion(['anio_lectivo_id' => $inactivo->id])->json('seccion.id');
+
         // Sin año activo ni indicado no se matricula
-        $this->matricular()->assertStatus(422)->assertJsonValidationErrors('anio_lectivo_id');
+        $this->matricular(['seccion_id' => $seccionInactivo])->assertStatus(422)->assertJsonValidationErrors('anio_lectivo_id');
         $this->assertSame(0, DB::table('matriculas')->count());
 
         $activo = $this->anio((string) (now()->year + 1), AnioLectivo::ACTIVO);
-        $inactivo = $this->anio((string) (now()->year + 2));
         $seccionActivo = $this->seccion(['anio_lectivo_id' => $activo->id])->json('seccion.id');
-        $seccionInactivo = $this->seccion(['anio_lectivo_id' => $inactivo->id])->json('seccion.id');
 
         // Por defecto, el año activo (no el del reloj)
         $id = $this->matricular(['seccion_id' => $seccionActivo])->assertCreated()->json('matricula.id');
@@ -149,8 +162,8 @@ class CalendarioMatriculaTest extends TestCase
 
         // Año cerrado o inexistente: rechazado
         $cerrado = $this->anio((string) (now()->year - 1), AnioLectivo::CIERRE);
-        $this->matricular(['anio_lectivo_id' => $cerrado->id])->assertStatus(422)->assertJsonValidationErrors('anio_lectivo_id');
-        $this->matricular(['anio_lectivo_id' => 9999])->assertStatus(422)->assertJsonValidationErrors('anio_lectivo_id');
+        $this->matricular(['anio_lectivo_id' => $cerrado->id, 'seccion_id' => $seccionActivo])->assertStatus(422)->assertJsonValidationErrors('anio_lectivo_id');
+        $this->matricular(['anio_lectivo_id' => 9999, 'seccion_id' => $seccionActivo])->assertStatus(422)->assertJsonValidationErrors('anio_lectivo_id');
         $this->assertSame(2, DB::table('matriculas')->count());
     }
 
@@ -167,7 +180,7 @@ class CalendarioMatriculaTest extends TestCase
         $this->assertSame((int) $seccion, (int) $fila->seccion_id);
 
         // Las demás validaciones siguen aplicándose
-        $this->matricular(['anio_lectivo_id' => $inactivo->id, 'ingreso' => 'Tío(a)'])
+        $this->matricular(['anio_lectivo_id' => $inactivo->id, 'seccion_id' => $seccion, 'ingreso' => 'Tío(a)'])
             ->assertStatus(422)->assertJsonValidationErrors('ingreso');
 
         // Sin indicar año y sin año activo: error controlado, nada se guarda
@@ -180,8 +193,9 @@ class CalendarioMatriculaTest extends TestCase
     {
         $activo = $this->anio((string) (now()->year), AnioLectivo::ACTIVO);
         $this->anio((string) (now()->year + 1));
+        $seccion = $this->seccion(['anio_lectivo_id' => $activo->id])->json('seccion.id');
 
-        $this->matricular()->assertCreated()->assertJsonPath('matricula.anio_lectivo_id', $activo->id);
+        $this->matricular(['seccion_id' => $seccion])->assertCreated()->assertJsonPath('matricula.anio_lectivo_id', $activo->id);
     }
 
     public function test_duplicidad_por_anio_lectivo(): void

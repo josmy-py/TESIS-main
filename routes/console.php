@@ -133,3 +133,38 @@ Artisan::command('siga:diagnostico-familias', function () {
         ? $this->info('Los datos familiares cumplen las reglas de M5.')
         : $this->warn("{$total} caso(s) para revisar manualmente. No se modificó nada.");
 })->purpose('Revisa estudiantes, padres y encargados contra las reglas de M5');
+
+// M6.1: matrículas existentes que no cumplen las reglas nuevas. Solo lee; no modifica nada.
+Artisan::command('siga:diagnostico-matriculas', function () {
+    $comunes = ['id', 'estudiante_id', 'anio_lectivo_id', 'seccion_id', 'estado'];
+    $secciones = [
+        'duplicadas' => ['Estudiantes con más de una matrícula pendiente o aprobada en el mismo año', ['estudiante_id', 'anio_lectivo_id', 'total']],
+        'secciones_sobre_cupo' => ['Secciones con más matrículas vigentes que su capacidad', ['id', 'nombre', 'capacidad', 'ocupados']],
+        'aprobadas_sin_seccion' => ['Matrículas aprobadas sin sección', $comunes],
+        'seccion_de_otro_anio' => ['Matrículas vigentes con una sección de otro año lectivo', $comunes],
+        'especialidad_distinta_del_plan' => ['Matrículas vigentes cuya especialidad no coincide con el plan de su sección', [...$comunes, 'especialidad_id', 'plan']],
+        'sin_responsable' => ['Matrículas vigentes sin responsable (sin encargado y la cuenta no es padre o madre del estudiante)', $comunes],
+        'archivos_publicos' => ['Matrículas con foto o documento aún en el disco público', ['id', 'estudiante_id', 'foto', 'documento']],
+        'archivos_faltantes' => ['Archivos privados que no existen en el disco', ['id', 'estudiante_id', 'archivo', 'ruta']],
+    ];
+
+    $servicio = app(\App\Services\DiagnosticoMatriculasService::class);
+    $diagnostico = $servicio->ejecutar();
+    $total = 0;
+
+    foreach ($secciones as $clave => [$titulo, $columnas]) {
+        $filas = $diagnostico[$clave];
+        $total += count($filas);
+        $this->line('');
+        $this->info($titulo.': '.count($filas));
+        if (count($filas) > 0) {
+            $this->table($columnas, array_map(fn ($fila) => array_map(fn ($c) => $fila[$c] ?? '(vacío)', $columnas), $filas));
+        }
+    }
+
+    $this->line('');
+    $this->line('Informativo: matrículas pendientes sin sección (la dirección la asigna al aprobar): '.$servicio->pendientesSinSeccion());
+    $total === 0
+        ? $this->info('Las matrículas cumplen las reglas de M6.1.')
+        : $this->warn("{$total} caso(s) para revisar manualmente. No se modificó nada.");
+})->purpose('Revisa las matrículas existentes contra las reglas de M6.1');

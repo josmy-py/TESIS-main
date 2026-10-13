@@ -2,415 +2,290 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\RespondeErrores;
 use App\Services\MatriculaService;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
+/**
+ * M6.1: API de matrícula. Las reglas (grado, plan, cupo, responsable,
+ * duplicidad) están en MatriculaService y se aplican al crear, editar y
+ * aprobar. Lo ajeno responde 404; las reglas de estado, 409.
+ */
 class MatriculaController extends Controller
 {
-    protected $matriculaService;
+    use RespondeErrores;
 
-    public function __construct(MatriculaService $matriculaService)
-    {
-        $this->matriculaService = $matriculaService;
-    }
+    private const MENSAJES = [
+        'ingreso.required' => 'El tipo de ingreso es obligatorio.',
+        'estudiante_id.required' => 'El estudiante es obligatorio.',
+        'seccion_id.required' => 'Seleccione la sección (grado y turno).',
+        'foto.required' => 'La foto es obligatoria.',
+        'foto.image' => 'La foto debe ser una imagen JPEG o PNG.',
+        'documento.required_if' => 'La partida de nacimiento es obligatoria para Nuevo ingreso.',
+        'documento.mimes' => 'El documento debe ser PDF, JPEG, PNG o JPG.',
+        'es_trasladado.required' => 'Debe indicar si el estudiante es trasladado.',
+        'es_trasladado.boolean' => 'El campo es trasladado debe ser verdadero o falso.',
+        'discapacidades.*.exists' => 'Una de las discapacidades no existe.',
+        'discapacidades.*.distinct' => 'Hay discapacidades repetidas.',
+        'motivo.required' => 'El motivo del rechazo es obligatorio.',
+        'motivo.min' => 'Escriba un motivo de al menos 5 caracteres.',
+    ];
 
-    /**
-     * Display a listing of the resource.
-     */
+    public function __construct(private MatriculaService $matriculaService) {}
+
+    /** Filtros: estado, ingreso, anio_lectivo_id, grado_id, q. Devuelve también el resumen por estado. */
     public function index(Request $request)
     {
-        try {
-            $matriculas = $this->matriculaService->listar(
-                $request->has('estado') ? $request->estado : null,
-                $this->propietarioId()
-            );
+        return $this->responder(function () use ($request) {
+            $filtros = $request->validate([
+                'estado' => 'nullable|in:pendiente,aprobado,rechazado',
+                'ingreso' => 'nullable|in:Nuevo ingreso,Reingreso',
+                'anio_lectivo_id' => 'nullable|integer',
+                'grado_id' => 'nullable|integer',
+                'q' => 'nullable|string|max:100',
+            ]);
 
-            return response()->json([
-                'matriculas' => $matriculas
-            ], 200);
-
-        } catch (\Exception $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'Error al obtener las matriculas',
-            ], 500);
-        }
+            return response()->json($this->matriculaService->listar($filtros, $this->propietarioId()));
+        }, 'Error al obtener las matrículas');
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
-        try {
-            $request->validate([
-                'ingreso' => 'required|in:Nuevo ingreso,Reingreso',
-                'estudiante_id' => 'required|exists:estudiantes,id',
-                'enfermedad_id' => 'required|exists:enfermedades,id',
-                'seccion_id' => 'nullable|exists:secciones,id',
-                'especialidad_id' => 'required|exists:especialidades,id',
-                'encargado_id' => 'nullable|exists:encargados,id',
-                'foto' => 'required|image|mimes:jpeg,png,jpg|max:2048',
-                'documento' => 'nullable|file|mimes:pdf,jpeg,png,jpg|max:2048',
-                'es_trasladado' => 'required|boolean',
-                'anio_lectivo_id' => 'nullable|integer',
-            ], [
-                'ingreso.required' => 'El tipo de ingreso es obligatorio.',
-                'estudiante_id.required' => 'El estudiante es obligatorio.',
-                'enfermedad_id.required' => 'La enfermedad es obligatoria.',
-                'especialidad_id.required' => 'La especialidad es obligatoria.',
-                'foto.required' => 'La foto es obligatoria.',
-                'documento.mimes' => 'El documento debe ser PDF, JPEG, PNG o JPG.',
-                'es_trasladado.required' => 'Debe indicar si el estudiante es trasladado.',
-                'es_trasladado.boolean' => 'El campo es trasladado debe ser verdadero o falso.',
-            ]);
-
-            // El encargado solo matricula a sus estudiantes y con su propio perfil de encargado
+        return $this->responder(function () use ($request) {
             $propietarioId = $this->propietarioId();
-            $this->validarPropiedad($request->estudiante_id, $request->encargado_id, $propietarioId);
+            $validador = Validator::make($request->all(), [
+                'ingreso' => 'required|in:Nuevo ingreso,Reingreso',
+                'estudiante_id' => 'required|integer|exists:estudiantes,id',
+                'seccion_id' => 'required|integer|exists:secciones,id',
+                'anio_lectivo_id' => 'nullable|integer',
+                'especialidad_id' => 'nullable|integer|exists:especialidades,id',
+                'encargado_id' => 'nullable|integer|exists:encargados,id',
+                'enfermedad_id' => 'nullable|integer|exists:enfermedades,id',
+                'discapacidades' => 'nullable|array',
+                'discapacidades.*' => 'integer|distinct|exists:discapacidades,id',
+                'foto' => 'required|image|mimes:jpeg,png,jpg|max:2048',
+                'documento' => 'required_if:ingreso,Nuevo ingreso|nullable|file|mimes:pdf,jpeg,png,jpg|max:2048',
+                'es_trasladado' => 'required|boolean',
+            ], self::MENSAJES);
+
+            // El encargado solo matricula a sus estudiantes y con su propio perfil de
+            // encargado; se informa junto con los demás errores del formulario
+            $validador->after(function ($v) use ($request, $propietarioId) {
+                try {
+                    $this->validarPropiedad($request->input('estudiante_id'), $request->input('encargado_id'), $propietarioId);
+                } catch (ValidationException $e) {
+                    foreach ($e->errors() as $campo => $mensajes) {
+                        $v->errors()->add($campo, $mensajes[0]);
+                    }
+                }
+            });
+            $datos = $validador->validate();
 
             $matricula = $this->matriculaService->crear(
-                $request->all(),
+                $datos,
                 $request->file('foto'),
-                $request->file('documento')
-            );
-
-            return response()->json([
-                'message' => 'Matricula creada exitosamente',
-                'matricula' => $matricula,
-            ], 201);
-
-        } catch (ValidationException $e) {
-            return response()->json([
-                'message' => 'Error de validación',
-                'errors' => $e->errors(),
-            ], 422);
-
-        } catch (\Exception $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'Error al crear la matricula',
-            ], 500);
-        }
-    }
-
-    /**
-     * Display the specified resource.
-     */
-    public function show(string $id)
-    {
-        try {
-            $matricula = $this->matriculaService->obtener($id, $this->propietarioId());
-
-            return response()->json($matricula);
-
-        } catch (ModelNotFoundException $e) {
-            return response()->json([
-                'message' => 'Matricula no encontrada',
-            ], 404);
-
-        } catch (\Exception $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'Error al obtener la matricula',
-            ], 500);
-        }
-    }
-
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, string $id)
-    {
-        try {
-            $validated = $request->validate([
-                'seccion_id' => 'nullable|exists:secciones,id',
-                'enfermedad_id' => 'required|exists:enfermedades,id',
-                'encargado_id' => 'required|exists:encargados,id',
-                'especialidad_id' => 'required|exists:especialidades,id',
-            ]);
-
-            $propietarioId = $this->propietarioId();
-            $this->validarPropiedad(null, $validated['encargado_id'], $propietarioId);
-
-            $matricula = $this->matriculaService->actualizar(
-                $id,
-                $validated,
+                $request->file('documento'),
+                $request->user(),
                 $propietarioId
             );
 
-            return response()->json([
-                'message' => 'Matrícula actualizada exitosamente',
-                'matricula' => $matricula,
-            ], 200);
-
-        } catch (ValidationException $e) {
-            return response()->json([
-                'message' => 'Error de validación',
-                'errors' => $e->errors(),
-            ], 422);
-
-        } catch (ModelNotFoundException $e) {
-            return response()->json([
-                'message' => 'Matrícula no encontrada',
-            ], 404);
-
-        } catch (\Exception $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'Error al actualizar la matrícula',
-            ], 500);
-        }
+            return response()->json(['message' => 'Solicitud de matrícula registrada. Queda pendiente de aprobación.', 'matricula' => $matricula], 201);
+        }, 'Error al crear la matrícula');
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(string $id)
+    public function show(string $id)
     {
-        //
+        return $this->responder(
+            fn () => response()->json($this->matriculaService->obtener($id, $this->propietarioId())),
+            'Error al obtener la matrícula',
+            'Matrícula no encontrada'
+        );
     }
 
-    public function estadoMatricula(Request $request, $id)
+    /** D-M7: solo pendientes. Con archivos, enviar como POST multipart con _method=PUT. */
+    public function update(Request $request, string $id)
     {
-        try {
-            $request->validate([
-                'estado' => 'required|in:pendiente,aprobado,rechazado',
-            ]);
+        return $this->responder(function () use ($request, $id) {
+            $datos = $request->validate([
+                'seccion_id' => 'sometimes|required|integer|exists:secciones,id',
+                'especialidad_id' => 'sometimes|nullable|integer|exists:especialidades,id',
+                'encargado_id' => 'sometimes|nullable|integer|exists:encargados,id',
+                'enfermedad_id' => 'sometimes|nullable|integer|exists:enfermedades,id',
+                'discapacidades' => 'sometimes|nullable|array',
+                'discapacidades.*' => 'integer|distinct|exists:discapacidades,id',
+                'es_trasladado' => 'sometimes|required|boolean',
+                'foto' => 'sometimes|image|mimes:jpeg,png,jpg|max:2048',
+                'documento' => 'sometimes|file|mimes:pdf,jpeg,png,jpg|max:2048',
+            ], self::MENSAJES);
 
-            $resultado = $this->matriculaService->actualizarEstado(
-                $id,
-                $request->estado
-            );
-
-            if ($resultado['error']) {
-                return response()->json([
-                    'message' => $resultado['message'],
-                ], $resultado['status']);
+            $propietarioId = $this->propietarioId();
+            if (array_key_exists('encargado_id', $datos)) {
+                $this->validarPropiedad(null, $datos['encargado_id'], $propietarioId);
             }
 
-            return response()->json([
-                'message' => 'La matricula ha sido actualizada correctamente',
-                'matriculas' => $resultado['matricula'],
+            $matricula = $this->matriculaService->actualizar(
+                $id,
+                collect($datos)->except(['foto', 'documento'])->all(),
+                $request->file('foto'),
+                $request->file('documento'),
+                $request->user(),
+                $propietarioId
+            );
+
+            return response()->json(['message' => 'Matrícula actualizada exitosamente', 'matricula' => $matricula]);
+        }, 'Error al actualizar la matrícula', 'Matrícula no encontrada');
+    }
+
+    /** D-M7: cancelar una solicitud pendiente. */
+    public function destroy(Request $request, string $id)
+    {
+        return $this->responder(function () use ($request, $id) {
+            $this->matriculaService->cancelar($id, $request->user(), $this->propietarioId());
+
+            return response()->json(['message' => 'Solicitud de matrícula cancelada.']);
+        }, 'Error al cancelar la matrícula', 'Matrícula no encontrada');
+    }
+
+    /** Solo DIRECTOR (págs. 63-64): aprobar (con sección opcional si falta) o rechazar con motivo. */
+    public function estadoMatricula(Request $request, $id)
+    {
+        return $this->responder(function () use ($request, $id) {
+            $datos = $request->validate([
+                'estado' => 'required|in:aprobado,rechazado',
+                'seccion_id' => 'nullable|integer|exists:secciones,id',
+                'motivo' => 'required_if:estado,rechazado|nullable|string|min:5|max:500',
+            ], self::MENSAJES + [
+                'estado.in' => 'Solo se puede aprobar o rechazar una matrícula.',
+                'motivo.required_if' => 'El motivo del rechazo es obligatorio.',
             ]);
 
-        } catch (ValidationException $e) {
-            return response()->json([
-                'message' => 'Error de validación',
-                'errors' => $e->errors(),
-            ], 422);
+            if ($datos['estado'] === 'aprobado') {
+                $matricula = $this->matriculaService->aprobar($id, $datos['seccion_id'] ?? null, $request->user());
+                $mensaje = 'Matrícula aprobada. Se notificó al encargado.';
+            } else {
+                $matricula = $this->matriculaService->rechazar($id, trim($datos['motivo']), $request->user());
+                $mensaje = 'Matrícula rechazada. Se notificó el motivo al encargado.';
+            }
 
-        } catch (ModelNotFoundException $e) {
-            return response()->json([
-                'message' => 'Matricula no encontrada',
-            ], 404);
+            return response()->json(['message' => $mensaje, 'matricula' => $matricula]);
+        }, 'Error al actualizar el estado de la matrícula', 'Matrícula no encontrada');
+    }
 
-        } catch (\Exception $e) {
-            report($e);
+    /** Solo DIRECTOR: cambia la sección (mismo grado, con cupo) de una pendiente o aprobada. */
+    public function cambiarSeccion(Request $request, $id)
+    {
+        return $this->responder(function () use ($request, $id) {
+            $datos = $request->validate(['seccion_id' => 'required|integer|exists:secciones,id'], self::MENSAJES);
+            $matricula = $this->matriculaService->cambiarSeccion($id, (int) $datos['seccion_id'], $request->user());
 
-            return response()->json([
-                'message' => 'Error al actualizar el estado la matricula',
-            ], 500);
-        }
+            return response()->json(['message' => 'Sección actualizada.', 'matricula' => $matricula]);
+        }, 'Error al cambiar la sección', 'Matrícula no encontrada');
+    }
+
+    /** D-M9: foto o documento desde el disco privado, solo para la cuenta dueña o la dirección. */
+    public function archivo($id, string $tipo)
+    {
+        return $this->responder(function () use ($id, $tipo) {
+            [$ruta, $nombre] = $this->matriculaService->archivo($id, $tipo, $this->propietarioId());
+
+            $respuesta = response()->download($ruta, $nombre, [], 'inline');
+            $respuesta->setPrivate();
+            $respuesta->headers->addCacheControlDirective('no-store');
+
+            return $respuesta;
+        }, 'Error al obtener el archivo', 'Archivo no encontrado');
+    }
+
+    /** Tipo de ingreso, grados y especialidad que corresponden al estudiante en el año (D-M5). */
+    public function opciones(Request $request, $estudianteId)
+    {
+        return $this->responder(function () use ($request, $estudianteId) {
+            $request->validate(['anio_lectivo_id' => 'nullable|integer']);
+
+            return response()->json($this->matriculaService->opciones($estudianteId, $request->anio_lectivo_id, $this->propietarioId()));
+        }, 'Error al obtener las opciones de matrícula', 'Estudiante no encontrado');
     }
 
     public function buscarNie(Request $request)
     {
-        try {
-            $request->validate([
-                'nie' => 'required|string|max:20',
-            ]);
+        return $this->responder(function () use ($request) {
+            $request->validate(['nie' => 'required|string|max:20']);
+            $estudiante = $this->matriculaService->buscarPorNie($request->nie, $this->propietarioId());
 
-            $estudiante = $this->matriculaService->buscarPorNie(
-                $request->nie,
-                $this->propietarioId()
-            );
-
-            if (!$estudiante) {
-                return response()->json([
-                    'message' => 'El estudiante no pertenece a la institución.',
-                ], 404);
+            if (! $estudiante) {
+                return response()->json(['message' => 'El estudiante no pertenece a la institución.'], 404);
             }
 
-            return response()->json([
-                'estudiante' => $estudiante,
-            ], 200);
-
-        } catch (ValidationException $e) {
-            return response()->json([
-                'message' => 'Error de validación',
-                'errors' => $e->errors(),
-            ], 422);
-
-        } catch (\Exception $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'Error al buscar el estudiante por NIE',
-            ], 500);
-        }
+            return response()->json(['estudiante' => $estudiante]);
+        }, 'Error al buscar el estudiante por NIE');
     }
 
-    public function estudianteInscrito(Request $request)
+    public function estudianteInscrito()
     {
-        try {
-            $estudiantes = $this->matriculaService
-                ->obtenerEstudiantesInscritos($this->propietarioId());
-
-            return response()->json([
-                'estudiantes' => $estudiantes,
-            ], 200);
-
-        } catch (\Exception $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'Error al obtener los estudiantes inscritos',
-            ], 500);
-        }
+        return $this->responder(
+            fn () => response()->json(['estudiantes' => $this->matriculaService->obtenerEstudiantesInscritos($this->propietarioId())]),
+            'Error al obtener los estudiantes inscritos'
+        );
     }
 
     public function padresEstudiante(string $estudianteId)
     {
-        try {
-            $padres = $this->matriculaService
-                ->obtenerPadresEstudiante($estudianteId, $this->propietarioId());
-
-            return response()->json([
-                'padres' => $padres,
-            ], 200);
-
-        } catch (ModelNotFoundException $e) {
-            return response()->json([
-                'message' => 'Estudiante no encontrado',
-            ], 404);
-
-        } catch (\Exception $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'Error al obtener los padres del estudiante',
-            ], 500);
-        }
+        return $this->responder(
+            fn () => response()->json(['padres' => $this->matriculaService->obtenerPadresEstudiante($estudianteId, $this->propietarioId())]),
+            'Error al obtener los padres del estudiante',
+            'Estudiante no encontrado'
+        );
     }
 
     public function validarGrado(Request $request, $estudiante, $grado)
     {
-        try {
+        return $this->responder(function () use ($request, $estudiante, $grado) {
             $request->validate([
                 'ingreso' => 'required|in:Nuevo ingreso,Reingreso',
+                'anio_lectivo_id' => 'nullable|integer',
             ]);
 
-            $resultado = $this->matriculaService->validarGrado(
-                $estudiante,
-                $grado,
-                $request->ingreso,
-                $this->propietarioId()
-            );
+            $resultado = $this->matriculaService->validarGrado($estudiante, $grado, $request->ingreso, $this->propietarioId(), $request->anio_lectivo_id);
 
             return response()->json([
                 'permitido' => $resultado['permitido'],
                 'grado_permitido' => $resultado['grado_permitido'] ?? null,
                 'message' => $resultado['message'],
             ], $resultado['status'] ?? 200);
-
-        } catch (ValidationException $e) {
-            return response()->json([
-                'message' => 'Error de validación',
-                'errors' => $e->errors(),
-            ], 422);
-
-        } catch (ModelNotFoundException $e) {
-            return response()->json([
-                'message' => 'Estudiante no encontrado',
-            ], 404);
-
-        } catch (\Exception $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'Error al validar el grado',
-            ], 500);
-        }
+        }, 'Error al validar el grado', 'Estudiante no encontrado');
     }
 
     public function disponibilidadSeccion(Request $request)
     {
-        try {
+        return $this->responder(function () use ($request) {
             $request->validate([
                 'grado_id' => 'required|exists:grados,id',
                 'turno' => 'required|in:matutino,vespertino',
                 'anio_lectivo_id' => 'nullable|integer',
             ]);
 
-            $resultado = $this->matriculaService
-                ->verificarDisponibilidadSeccion(
-                    $request->grado_id,
-                    $request->turno,
-                    $request->anio_lectivo_id
-                );
-
-            return response()->json($resultado, 200);
-
-        } catch (ValidationException $e) {
-            return response()->json([
-                'message' => 'Error de validación',
-                'errors' => $e->errors(),
-            ], 422);
-
-        } catch (\Exception $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'Error al verificar la disponibilidad de secciones',
-            ], 500);
-        }
+            return response()->json($this->matriculaService->verificarDisponibilidadSeccion($request->grado_id, $request->turno, $request->anio_lectivo_id));
+        }, 'Error al verificar la disponibilidad de secciones');
     }
 
     public function seccionesDisponibles(Request $request)
     {
-        try {
+        return $this->responder(function () use ($request) {
             $request->validate([
                 'grado_id' => 'required|exists:grados,id',
                 'turno' => 'required|in:matutino,vespertino',
                 'anio_lectivo_id' => 'nullable|integer',
             ]);
 
-            $secciones = $this->matriculaService
-                ->obtenerSeccionesDisponibles(
-                    $request->grado_id,
-                    $request->turno,
-                    $request->anio_lectivo_id
-                );
-
-            return response()->json([
-                'secciones' => $secciones,
-            ], 200);
-
-        } catch (ValidationException $e) {
-            return response()->json([
-                'message' => 'Error de validación',
-                'errors' => $e->errors(),
-            ], 422);
-
-        } catch (\Exception $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'Error al obtener las secciones disponibles',
-            ], 500);
-        }
+            return response()->json(['secciones' => $this->matriculaService->obtenerSeccionesDisponibles($request->grado_id, $request->turno, $request->anio_lectivo_id)]);
+        }, 'Error al obtener las secciones disponibles');
     }
 
     public function duplicidadMatricula(Request $request)
     {
-        try {
+        return $this->responder(function () use ($request) {
             $request->validate([
                 'estudiante_id' => 'required|exists:estudiantes,id',
                 'anio_lectivo_id' => 'nullable|integer|exists:anios_lectivos,id',
@@ -418,42 +293,12 @@ class MatriculaController extends Controller
 
             $this->matriculaService->estudiantePropio($request->estudiante_id, $this->propietarioId());
 
-            $duplicidad = $this->matriculaService
-                ->verificarDuplicidad(
-                    $request->estudiante_id,
-                    $request->anio_lectivo_id
-                );
-
-            if ($duplicidad) {
-                return response()->json([
-                    'duplicidad' => true,
-                    'message' => 'El estudiante ya tiene una matrícula registrada',
-                ], 422);
+            if ($this->matriculaService->verificarDuplicidad($request->estudiante_id, $request->anio_lectivo_id)) {
+                return response()->json(['duplicidad' => true, 'message' => 'El estudiante ya tiene una matrícula registrada'], 422);
             }
 
-            return response()->json([
-                'duplicidad' => false,
-                'message' => 'El estudiante no tiene una matrícula registrada',
-            ], 200);
-
-        } catch (ValidationException $e) {
-            return response()->json([
-                'message' => 'Error de validación',
-                'errors' => $e->errors(),
-            ], 422);
-
-        } catch (ModelNotFoundException $e) {
-            return response()->json([
-                'message' => 'Estudiante no encontrado',
-            ], 404);
-
-        } catch (\Exception $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'Error al verificar la matrícula',
-            ], 500);
-        }
+            return response()->json(['duplicidad' => false, 'message' => 'El estudiante no tiene una matrícula registrada']);
+        }, 'Error al verificar la matrícula', 'Estudiante no encontrado');
     }
 
     /**

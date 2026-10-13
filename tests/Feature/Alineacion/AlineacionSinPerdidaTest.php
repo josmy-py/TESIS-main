@@ -24,7 +24,7 @@ class AlineacionSinPerdidaTest extends TestCase
 {
     use DatabaseMigrations, DatosM1;
 
-    private const ALINEACION = 3; // migraciones 000007, 000008 y 000009 (índice único de M4)
+    private const ALINEACION = 5; // migraciones 000007, 000008, 000009 (índice único de M4), 000010 y 000011 (M6.1)
 
     private const INFRAESTRUCTURA = [
         'cache', 'cache_locks', 'failed_jobs', 'job_batches', 'jobs', 'migrations', 'password_reset_tokens', 'sessions',
@@ -63,6 +63,11 @@ class AlineacionSinPerdidaTest extends TestCase
         // Lo que el diagrama conserva no cambia (salvo los dos cambios de valores previstos)
         $despues = $this->volcado();
         foreach ($despues as $tabla => $filas) {
+            if ($tabla === 'notifications') {
+                // D-M6 (M6.1): tabla estándar de avisos autorizada; nace vacía
+                $this->assertSame([], $filas);
+                continue;
+            }
             $this->assertArrayHasKey($tabla, $antes, "Tabla nueva: {$tabla}");
             foreach ($filas as $i => $fila) {
                 foreach ($fila as $columna => $valor) {

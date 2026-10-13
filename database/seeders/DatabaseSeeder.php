@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             AsignacionPruebaSeeder::class,
             GeografiaElSalvadorSeeder::class,
             FamiliaPruebaSeeder::class,
+            MatriculaPruebaSeeder::class,
         ]);
     }
 }

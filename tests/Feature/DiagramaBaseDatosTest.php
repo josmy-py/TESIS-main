@@ -77,6 +77,8 @@ class DiagramaBaseDatosTest extends TestCase
         $infraestructura = [
             'cache', 'cache_locks', 'failed_jobs', 'job_batches', 'jobs', 'migrations', 'password_reset_tokens', 'sessions',
             'roles', 'permissions', 'model_has_roles', 'model_has_permissions', 'role_has_permissions',
+            // D-M6 (aprobada por Josmy el 13/10/2026): tabla estándar de avisos de Laravel, excepción justificada
+            'notifications',
         ];
         $tablas = array_column(Schema::getTables(Schema::getConnection()->getDatabaseName()), 'name');
         $sobran = array_values(array_diff($tablas, array_keys(self::DIAGRAMA), $infraestructura));

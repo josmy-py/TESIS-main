@@ -14,6 +14,7 @@ use App\Http\Controllers\EnfermedadController;
 use App\Http\Controllers\EstudianteController;
 use App\Http\Controllers\ProfesorController;
 use App\Http\Controllers\MatriculaController;
+use App\Http\Controllers\NotificacionController;
 use App\Http\Controllers\PadreController;
 use App\Http\Controllers\PeriodoEscolarController;
 use App\Http\Controllers\PlanEstudioController;
@@ -46,6 +47,10 @@ Route::prefix('auth')->group(function(){
 });
 
 Route::middleware(['auth:api', 'activo'])->group(function () {
+    // M6.1 (D-M6): avisos de la cuenta autenticada
+    Route::get('notificaciones', [NotificacionController::class, 'index']);
+    Route::post('notificaciones/{id}/leida', [NotificacionController::class, 'marcarLeida']);
+
     // Estas rutas de consulta deben estar accesibles para el Cliente (para llenar los selects)
     Route::get('grados/catalogo', [GradoController::class, 'catalogo']);
     Route::apiResource('grados', GradoController::class)->only(['index', 'show']);
@@ -93,7 +98,10 @@ Route::middleware(['auth:api', 'activo', 'role:ENCARGADO|DIRECTOR'])->group(func
     Route::post('matriculas/disponibilidad-seccion', [MatriculaController::class, 'disponibilidadSeccion']);
     Route::post('matriculas/secciones-disponibles', [MatriculaController::class, 'seccionesDisponibles']);
     Route::post('matriculas/duplicidad', [MatriculaController::class, 'duplicidadMatricula']);
-    Route::apiResource('matriculas', MatriculaController::class)->except(['destroy']);
+    // M6.1: opciones de promoción, archivos privados (D-M9) y cancelar pendientes (D-M7)
+    Route::get('matriculas/estudiantes/{estudianteId}/opciones', [MatriculaController::class, 'opciones'])->whereNumber('estudianteId');
+    Route::get('matriculas/{id}/archivos/{tipo}', [MatriculaController::class, 'archivo'])->whereNumber('id')->whereIn('tipo', ['foto', 'documento']);
+    Route::apiResource('matriculas', MatriculaController::class);
 });
 
 // 🔴 2. Rutas Exclusivas para el Administrador (Gestión del Sistema)
@@ -112,7 +120,8 @@ Route::middleware(['auth:api', 'activo', 'role:DIRECTOR'])->group(function () {
     Route::delete('encargados/{encargado}', [EncargadoController::class, 'destroy']);
 
     // Aprobar o rechazar matrículas es una acción del Director
-    Route::put('matriculas/{id}/estado', [MatriculaController::class, 'estadoMatricula']);
+    Route::put('matriculas/{id}/estado', [MatriculaController::class, 'estadoMatricula'])->whereNumber('id');
+    Route::put('matriculas/{id}/seccion', [MatriculaController::class, 'cambiarSeccion'])->whereNumber('id');
     Route::apiResource('plan-estudios', PlanEstudioController::class)->only(['store', 'update', 'destroy']);
     Route::apiResource('asignaturas', AsignaturaController::class)->only(['store', 'update', 'destroy']);
     Route::apiResource('grados', GradoController::class)->only(['store', 'update', 'destroy']);

@@ -151,9 +151,10 @@ class GradosTest extends TestCase
         // Con la regla anterior (id + 1) el grado permitido no habría existido
         $this->assertNull(Grado::find($primero->id + 1));
 
-        // Un hueco en la numeración no impide encontrar el siguiente
+        // M6.1 (D-M5): nunca se salta un grado; si el siguiente no está registrado se bloquea
         $segundo->delete();
-        $validar($tercero)->assertOk()->assertJsonPath('permitido', true);
+        $validar($tercero)->assertStatus(422)->assertJsonPath('permitido', false)
+            ->assertJsonPath('message', 'El grado siguiente (Segundo grado) no está registrado en SIGA. No se puede saltar grados: regístrelo antes de matricular.');
 
         // De Parvularia 6 años se pasa a Primer grado
         $parvularia = Grado::create(['nombre' => 'Parvularia 6 años']);
@@ -176,13 +177,13 @@ class GradosTest extends TestCase
         $this->matriculaAprobadaEn($a, $catalogos, $sinOrden);
         $this->como($encargado)->postJson("/api/matriculas/validar-grado/{$a->id}/{$ultimo->id}", ['ingreso' => 'Reingreso'])
             ->assertStatus(422)->assertJsonPath('permitido', false)
-            ->assertJsonPath('message', 'No se puede determinar el grado siguiente: el grado anterior no pertenece al catálogo oficial de grados.');
+            ->assertJsonPath('message', 'No se puede determinar el grado de la matrícula aprobada de (año sin registrar): no tiene sección o su grado no está en el catálogo oficial.');
 
         $b = $this->estudianteDe($encargado, $catalogos['distrito']);
         $this->matriculaAprobadaEn($b, $catalogos, $ultimo);
         $this->como($encargado)->postJson("/api/matriculas/validar-grado/{$b->id}/{$otro->id}", ['ingreso' => 'Reingreso'])
             ->assertStatus(422)->assertJsonPath('permitido', false)->assertJsonPath('grado_permitido', null)
-            ->assertJsonPath('message', 'No se puede determinar el grado siguiente: no hay un grado registrado después del grado anterior.');
+            ->assertJsonPath('message', 'El grado siguiente (Primer año de bachillerato) no está registrado en SIGA. No se puede saltar grados: regístrelo antes de matricular.');
     }
 
     public function test_regla_de_inferencia_solo_acepta_nombres_inequivocos(): void

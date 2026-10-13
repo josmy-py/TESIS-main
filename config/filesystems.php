@@ -38,6 +38,17 @@ return [
             'report' => false,
         ],
 
+        // M6.1 (D-M9): foto y documentos de matrícula. Disco privado: solo se
+        // descargan por la API, con sesión del director o de la cuenta dueña.
+        'matriculas' => [
+            'driver' => 'local',
+            'root' => storage_path('app/private/matriculas'),
+            'visibility' => 'private',
+            'serve' => false,
+            'throw' => false,
+            'report' => false,
+        ],
+
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),

@@ -22,6 +22,20 @@ class Matricula extends Model
         'encargado_id',
     ];
 
+    // M6.1 (D-M9): las rutas internas de los archivos privados no se exponen;
+    // se descargan por GET matriculas/{id}/archivos/{foto|documento}.
+    protected $hidden = ['foto', 'documento'];
+
+    protected $casts = [
+        'es_trasladado' => 'boolean',
+        'estudiante_id' => 'integer',
+        'seccion_id' => 'integer',
+        'anio_lectivo_id' => 'integer',
+        'especialidad_id' => 'integer',
+        'enfermedad_id' => 'integer',
+        'encargado_id' => 'integer',
+    ];
+
     // Relación Mucho a Muchos con Discapacidad (vía tabla 'expedientes')
     public function discapacidades()
     {

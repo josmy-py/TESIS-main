@@ -91,6 +91,15 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // M6.1: bitácora de matrículas (aprobaciones, rechazos con motivo, cancelaciones, cambios de sección)
+        'matriculas' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/matriculas.log'),
+            'level' => 'info',
+            'days' => env('LOG_MATRICULAS_DAYS', 0),
+            'replace_placeholders' => true,
+        ],
+
         'slack' => [
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),
