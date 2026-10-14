@@ -38,7 +38,7 @@ class SeccionesTest extends TestCase
         parent::setUp();
         $this->sembrarRoles();
         $this->director = $this->usuario(User::ROL_DIRECTOR);
-        $this->encargado = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000003-4']);
+        $this->encargado = $this->usuario(User::ROL_ENCARGADO);
         $this->catalogos = $this->catalogosBasicos();
         $this->anio = $this->anio('2026', AnioLectivo::ACTIVO);
         $this->primero = Grado::create(['nombre' => 'Primer grado']);
@@ -54,11 +54,11 @@ class SeccionesTest extends TestCase
         return $anio;
     }
 
-    private function docente(?string $estado = null): Profesor
+    private function docente(): Profesor
     {
         static $n = 0;
         $n++;
-        $user = $this->usuario(User::ROL_DOCENTE, [], $estado);
+        $user = $this->usuario(User::ROL_DOCENTE);
 
         return Profesor::create([
             'nombre' => "Docente {$n}", 'dui' => sprintf('1%07d-0', $n), 'fecha_nacimiento' => '1990-01-01',
@@ -153,17 +153,12 @@ class SeccionesTest extends TestCase
         $this->crear(['anio_lectivo_id' => $this->anio('2028')->id])->assertCreated();
     }
 
-    public function test_docente_debe_tener_cuenta_docente_activa(): void
+    public function test_docente_debe_tener_cuenta_docente(): void
     {
-        $inactivo = $this->docente(User::ESTADO_INACTIVO);
-        $this->crear(['profesor_id' => $inactivo->id])->assertStatus(422)->assertJsonValidationErrors('profesor_id');
-
-        $pendiente = $this->docente(User::ESTADO_PENDIENTE);
-        $this->crear(['profesor_id' => $pendiente->id])->assertStatus(422)->assertJsonValidationErrors('profesor_id');
-
-        // Una cuenta activa que ya no tiene el rol DOCENTE tampoco sirve
+        // Una cuenta que ya no tiene el rol DOCENTE no sirve
         $sinRol = $this->docente();
-        $sinRol->user->syncRoles([User::ROL_ENCARGADO]);
+        $sinRol->user->asignarRol(User::ROL_ENCARGADO);
+        $sinRol->user->save();
         $this->crear(['profesor_id' => $sinRol->id])->assertStatus(422)->assertJsonValidationErrors('profesor_id');
     }
 

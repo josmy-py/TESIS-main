@@ -7,7 +7,6 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Password;
 use Tests\TestCase;
 use Tymon\JWTAuth\Facades\JWTAuth;
 
@@ -28,8 +27,8 @@ class CierreSeguridadTest extends TestCase
         parent::setUp();
         $this->sembrarRoles();
         $this->catalogos = $this->catalogosBasicos();
-        $this->a = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000001-8']);
-        $this->b = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000002-6']);
+        $this->a = $this->usuario(User::ROL_ENCARGADO);
+        $this->b = $this->usuario(User::ROL_ENCARGADO);
     }
 
     private function vincular(User $cuenta, int $estudianteId, int $padreId)
@@ -133,24 +132,6 @@ class CierreSeguridadTest extends TestCase
         $this->postJson('/api/auth/login', ['email' => $this->a->email, 'password' => 'Nueva1234'])->assertOk();
     }
 
-    // Restablecimiento: ningún token emitido antes sigue sirviendo
-    public function test_restablecer_contrasena_revoca_las_sesiones_anteriores(): void
-    {
-        $anterior = $this->postJson('/api/auth/login', ['email' => $this->b->email, 'password' => 'password'])->json('access_token');
-        $this->conToken($anterior)->getJson('/api/auth/me')->assertOk();
-
-        $token = Password::createToken($this->b);
-        $this->postJson('/api/auth/restablecer-contrasena', [
-            'token' => $token, 'email' => $this->b->email, 'password' => 'Nueva1234', 'password_confirmation' => 'Nueva1234',
-        ])->assertOk();
-
-        $this->conToken($anterior)->getJson('/api/auth/me')->assertStatus(401)->assertJsonPath('codigo', 'sesion_revocada');
-        $this->conToken($anterior)->postJson('/api/auth/refresh')->assertStatus(401);
-
-        $nuevo = $this->postJson('/api/auth/login', ['email' => $this->b->email, 'password' => 'Nueva1234'])->assertOk()->json('access_token');
-        $this->conToken($nuevo)->getJson('/api/auth/me')->assertOk();
-    }
-
     // Un token sin huella válida (por ejemplo, emitido antes de esta corrección) se rechaza
     public function test_token_sin_huella_vigente_se_rechaza(): void
     {
@@ -167,40 +148,4 @@ class CierreSeguridadTest extends TestCase
 
     }
 
-    // Cuentas heredadas sin DUI: el comando las lista y el director completa el DUI una vez, sin tocar el rol
-    public function test_completar_dui_de_cuenta_heredada(): void
-    {
-        $director = $this->usuario(User::ROL_DIRECTOR);
-        $heredada = $this->usuario(User::ROL_ENCARGADO, ['nombre' => null, 'dui' => null]);
-        $otra = $this->usuario(User::ROL_ENCARGADO, ['dui' => null]);
-        $rolAntes = DB::table('model_has_roles')->where('model_id', $heredada->id)->pluck('role_id')->all();
-
-        Artisan::call('siga:usuarios-sin-dui');
-        $this->assertStringContainsString($heredada->email, Artisan::output());
-
-        $datos = ['nombre' => 'Ana Heredada', 'email' => $heredada->email, 'rol' => User::ROL_ENCARGADO];
-
-        $this->como($director)->putJson("/api/usuarios/{$heredada->id}", $datos + ['dui' => '000162974'])
-            ->assertStatus(422)->assertJsonValidationErrors('dui');
-        $this->como($director)->putJson("/api/usuarios/{$heredada->id}", $datos + ['dui' => $this->a->dui])
-            ->assertStatus(422)->assertJsonValidationErrors('dui');
-
-        $this->como($director)->putJson("/api/usuarios/{$heredada->id}", $datos + ['dui' => '000162975'])
-            ->assertOk()->assertJsonPath('usuario.dui', '00016297-5')->assertJsonPath('usuario.rol', User::ROL_ENCARGADO);
-        $this->assertSame($rolAntes, DB::table('model_has_roles')->where('model_id', $heredada->id)->pluck('role_id')->all());
-
-        // Una vez completado ya no se puede cambiar
-        $this->como($director)->putJson("/api/usuarios/{$heredada->id}", $datos + ['dui' => '00000003-4'])
-            ->assertStatus(422)->assertJsonValidationErrors('dui');
-
-        // Editar sin DUI sigue funcionando para la cuenta que aún no lo tiene
-        $this->como($director)->putJson("/api/usuarios/{$otra->id}", ['nombre' => $otra->nombre, 'email' => $otra->email, 'rol' => User::ROL_ENCARGADO])
-            ->assertOk();
-        $this->assertNull($otra->fresh()->dui);
-
-        Artisan::call('siga:usuarios-sin-dui');
-        $salida = Artisan::output();
-        $this->assertStringNotContainsString($heredada->email, $salida);
-        $this->assertStringContainsString($otra->email, $salida);
-    }
 }

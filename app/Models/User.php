@@ -2,20 +2,18 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Notifications\Notifiable;
 use Tymon\JWTAuth\Contracts\JWTSubject;
-use Spatie\Permission\Traits\HasRoles;
 
+/**
+ * Tabla users del diagrama: email, password y rol_id (tabla roles).
+ */
 class User extends Authenticatable implements JWTSubject
 {
-      /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable, HasRoles;
-
-    //sobreescribimos la variable $guard_name
-    protected $guard_name = 'api';
+    /** @use HasFactory<\Database\Factories\UserFactory> */
+    use HasFactory;
 
     //implementación de los métodos de JWT
     public function getJWTIdentifier(){
@@ -31,64 +29,65 @@ class User extends Authenticatable implements JWTSubject
     /**
      * Huella de la contraseña actual: HMAC del hash con APP_KEY, recortado.
      * No permite recuperar la contraseña ni el hash. Cambia cada vez que se
-     * cambia o restablece la contraseña, y con ella dejan de servir los
-     * tokens emitidos antes (middleware SesionVigente).
+     * cambia la contraseña, y con ella dejan de servir los tokens emitidos
+     * antes (middleware SesionVigente).
      */
     public function huellaContrasena(): string
     {
         return substr(hash_hmac('sha256', (string) $this->password, (string) config('app.key')), 0, 32);
     }
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var list<string>
-     */
-    // estado, email_verified_at y los roles no son asignables en masa:
-    // solo se cambian de forma explícita (registro, activación, gestión del director)
+    // rol_id no es asignable en masa: solo se cambia con asignarRol()
     protected $fillable = [
-        'nombre',
-        'dui',
         'email',
         'password',
     ];
 
-    /**
-     * The attributes that should be hidden for serialization.
-     *
-     * @var list<string>
-     */
     protected $hidden = [
         'password',
-        'remember_token',
     ];
 
-    /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
     protected function casts(): array
     {
         return [
-            'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
     }
 
-    // Roles técnicos de SIGA (Spatie, guard api). Un único rol por usuario.
+    // Roles de SIGA (tabla roles). Un único rol por usuario.
     public const ROL_DIRECTOR = 'DIRECTOR';
     public const ROL_DOCENTE = 'DOCENTE';
     public const ROL_ENCARGADO = 'ENCARGADO';
     public const ROLES = [self::ROL_DIRECTOR, self::ROL_DOCENTE, self::ROL_ENCARGADO];
 
-    public const ESTADO_PENDIENTE = 'pendiente';
-    public const ESTADO_ACTIVO = 'activo';
-    public const ESTADO_INACTIVO = 'inactivo';
-
-    public function estaActivo(): bool
+    public function rolAsignado()
     {
-        return $this->estado === self::ESTADO_ACTIVO;
+        return $this->belongsTo(Rol::class, 'rol_id');
+    }
+
+    public function rol(): ?string
+    {
+        return $this->rolAsignado?->nombre;
+    }
+
+    /** Acepta un nombre, varios separados por "|" o un arreglo. */
+    public function hasRole(string|array $roles): bool
+    {
+        $roles = is_array($roles) ? $roles : explode('|', $roles);
+
+        return in_array($this->rol(), $roles, true);
+    }
+
+    /** asignarRol del diagrama de clases. No guarda: el llamador hace save(). */
+    public function asignarRol(string $rol): void
+    {
+        $this->rol_id = Rol::idDe($rol);
+        $this->unsetRelation('rolAsignado');
+    }
+
+    public function scopeConRol(Builder $query, string $rol): Builder
+    {
+        return $query->whereHas('rolAsignado', fn ($q) => $q->where('nombre', $rol));
     }
 
     public function esDirector(): bool
@@ -96,35 +95,15 @@ class User extends Authenticatable implements JWTSubject
         return $this->hasRole(self::ROL_DIRECTOR);
     }
 
-    public function rol(): ?string
-    {
-        return $this->getRoleNames()->first();
-    }
-
-    // Datos que la API devuelve del usuario (sin contraseña ni tokens)
+    // Datos que la API devuelve del usuario (sin contraseña)
     public function datosSesion(): array
     {
         return [
             'id' => $this->id,
-            'nombre' => $this->nombre,
-            'dui' => $this->dui,
             'email' => $this->email,
-            'estado' => $this->estado,
-            'email_verificado' => $this->email_verified_at !== null,
             'rol' => $this->rol(),
             'created_at' => $this->created_at?->toDateTimeString(),
         ];
-    }
-
-    // Enlace de recuperación hacia el frontend (broker de Laravel)
-    public function sendPasswordResetNotification($token): void
-    {
-        $url = app(\App\Services\UsuarioService::class)->urlContrasena($this, $token);
-
-        $this->notify(new \App\Notifications\RestablecerContrasena(
-            $url,
-            (int) config('auth.passwords.users.expire', 60)
-        ));
     }
 
     public function profesor()
@@ -146,6 +125,4 @@ class User extends Authenticatable implements JWTSubject
     {
         return $this->hasMany(Estudiante::class);
     }
-
-
 }

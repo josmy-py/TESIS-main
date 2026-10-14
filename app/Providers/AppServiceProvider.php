@@ -33,27 +33,5 @@ class AppServiceProvider extends ServiceProvider
         });
 
         RateLimiter::for('registro', fn (Request $request) => Limit::perMinute(5)->by('registro:'.$request->ip()));
-
-        // Reenvío de activación y olvido de contraseña (envían correos)
-        RateLimiter::for('correo', function (Request $request) {
-            $email = mb_strtolower((string) $request->input('email'));
-
-            return [
-                Limit::perMinute(3)->by('correo:'.$email.'|'.$request->ip()),
-                Limit::perMinute(10)->by('correo-ip:'.$request->ip()),
-            ];
-        });
-
-        // Restablecimiento con el token del correo (no envía correos; admite corregir errores del formulario)
-        RateLimiter::for('restablecer', function (Request $request) {
-            $email = mb_strtolower((string) $request->input('email'));
-
-            return [
-                Limit::perMinute(5)->by('restablecer:'.$email.'|'.$request->ip()),
-                Limit::perMinute(20)->by('restablecer-ip:'.$request->ip()),
-            ];
-        });
-
-        RateLimiter::for('activacion', fn (Request $request) => Limit::perMinute(10)->by('activacion:'.$request->ip()));
     }
 }

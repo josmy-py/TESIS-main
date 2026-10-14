@@ -41,10 +41,11 @@ class CalendarioMigracionTest extends TestCase
         $this->assertFalse(Schema::hasTable('anios_lectivos'));
         $this->assertFalse(Schema::hasColumn('secciones', 'anio_lectivo_id'));
 
-        $this->sembrarRoles();
+        // Cuentas con el esquema anterior (sin rol_id): solo se necesitan sus id
+        $cuenta = fn ($email) => User::find(DB::table('users')->insertGetId(['email' => $email, 'password' => 'x', 'created_at' => now(), 'updated_at' => now()]));
         $catalogos = $this->catalogosBasicos();
-        $encargado = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000001-8']);
-        $docente = $this->usuario(User::ROL_DOCENTE);
+        $encargado = $cuenta('encargado@antes.test');
+        $docente = $cuenta('docente@antes.test');
         $grado = DB::table('grados')->insertGetId(['nombre' => 'Primer grado']);
         $profesor = DB::table('profesores')->insertGetId([
             'nombre' => 'Profe', 'dui' => '00000002-6', 'fecha_nacimiento' => '1990-01-01', 'codigo' => 'P1',
@@ -124,7 +125,7 @@ class CalendarioMigracionTest extends TestCase
         $periodos = DB::table('periodo_escolares')->orderBy('id')->get();
         $this->assertSame([['Primer trimestre', 1], ['Anual', 7]], $periodos->map(fn ($p) => [$p->nombre, (int) $p->nivel])->all());
         $this->assertSame([null, null], $periodos->pluck('anio_lectivo_id')->all());
-        $this->assertSame(['pendiente', 'pendiente'], $periodos->pluck('estado')->all());
+        $this->assertFalse(Schema::hasColumn('periodo_escolares', 'estado'));
 
         // El diagnóstico lo identifica, sin modificar nada
         Artisan::call('siga:diagnostico-calendario');
@@ -135,9 +136,8 @@ class CalendarioMigracionTest extends TestCase
         $this->assertStringContainsString('Matrículas sin año lectivo: 0', $salida);
         $this->assertStringContainsString('Matrículas con un año lectivo distinto al de su sección: 0', $salida);
 
-        // Un periodo anterior no se puede abrir ni borrar hasta revisarlo
+        // Un periodo anterior no se puede borrar hasta revisarlo
         $director = $this->usuario(User::ROL_DIRECTOR);
-        $this->como($director)->postJson("/api/periodos-escolares/{$periodos[0]->id}/abrir")->assertStatus(409);
         $this->como($director)->deleteJson("/api/periodos-escolares/{$periodos[0]->id}")->assertStatus(409);
         $this->assertSame(2, DB::table('periodo_escolares')->count());
 

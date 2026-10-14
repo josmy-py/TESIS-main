@@ -37,7 +37,7 @@ class CalendarioMatriculaTest extends TestCase
         Storage::fake('matriculas');
         $this->sembrarRoles();
         $this->director = $this->usuario(User::ROL_DIRECTOR);
-        $this->encargado = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000001-8']);
+        $this->encargado = $this->usuario(User::ROL_ENCARGADO);
         $this->catalogos = $this->catalogosBasicos();
         $this->grado = Grado::create(['nombre' => 'Primer grado']);
 
@@ -50,7 +50,7 @@ class CalendarioMatriculaTest extends TestCase
         // M6.1: plan vigente del grado (sin especialidad) y la cuenta como padre (responsable, D-M1)
         PlanEstudio::create(['nombre' => 'Plan Primer grado', 'grado_id' => $this->grado->id, 'especialidad_id' => null, 'estado' => true,
             'fecha_inicio' => '2026-01-15', 'fecha_fin' => '2030-11-30', 'fecha_aprobacion' => '2025-12-01', 'descripcion' => 'Pensum']);
-        $this->padre = Padre::create(['nombre' => $this->encargado->nombre, 'dui' => '00000001-8', 'user_id' => $this->encargado->id]);
+        $this->padre = Padre::create(['nombre' => 'Encargado', 'dui' => '00000001-8', 'user_id' => $this->encargado->id]);
     }
 
     private function anio(string $nombre, string $estado = AnioLectivo::INACTIVO): AnioLectivo
@@ -73,9 +73,13 @@ class CalendarioMatriculaTest extends TestCase
         $estudiante = $this->estudianteDe($this->encargado, $this->catalogos['distrito']);
         $estudiante->padres()->attach($this->padre->id, ['parentesco' => 'Padre']);
 
-        return $this->como($this->encargado)->post('/api/matriculas', $datos + [
+        // La sección la indica la dirección; el encargado solicita sin ella
+        $cuenta = array_key_exists('seccion_id', $datos) ? $this->director : $this->encargado;
+
+        return $this->como($cuenta)->post('/api/matriculas', $datos + [
             'ingreso' => 'Nuevo ingreso',
             'estudiante_id' => $estudiante->id,
+            'nie' => $estudiante->nie,
             'enfermedad_id' => $this->catalogos['enfermedad'],
             'foto' => UploadedFile::fake()->image('foto.jpg'),
             'documento' => UploadedFile::fake()->create('partida.pdf', 10, 'application/pdf'),

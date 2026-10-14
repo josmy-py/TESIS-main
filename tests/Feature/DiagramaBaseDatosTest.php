@@ -8,8 +8,8 @@ use Tests\TestCase;
 
 /**
  * La base de datos debe coincidir con el diagrama ER (documentacion\Diagramas
- * de SIGA.svg). Cualquier columna que no esté en el diagrama necesita una
- * justificación aprobada y se registra aquí, en APROBADAS, con su motivo.
+ * de SIGA.svg). Regla de Josmy (13/10/2026): si no viene en el diagrama, no se
+ * toma. No hay columnas ni tablas de negocio fuera de él.
  */
 class DiagramaBaseDatosTest extends TestCase
 {
@@ -44,26 +44,15 @@ class DiagramaBaseDatosTest extends TestCase
         'periodo_escolares' => ['nombre', 'nivel', 'anio_lectivo_id'],
         'conductas' => ['matricula_id', 'descripcion', 'valoracion', 'periodo_escolar_id'],
         'boletas' => ['matricula_id', 'asignacion_id', 'periodo_escolar_id', 'promedio'],
-        // users.rol_id del diagrama se reemplaza por los roles de Spatie (D9, aprobado en M1)
-        'users' => ['email', 'password'],
-    ];
-
-    /** Columnas fuera del diagrama aprobadas por Josmy, con su justificación. */
-    private const APROBADAS = [
-        'users' => [
-            'nombre', 'dui', 'estado',             // D1/D2 (M1): cuenta con nombre, DUI y estado
-            'email_verified_at', 'remember_token', // columnas propias de Laravel
-        ],
-        'plan_estudios' => ['grado_id'],                          // D11: pensum por grado (documento, pág. 65)
-        'profesores' => ['especialidad', 'fecha_contratacion'],   // D11: datos del docente (documento, pág. 66)
-        'periodo_escolares' => ['estado'],                        // periodo abierto/cerrado (documento, pág. 61 y 69)
+        'users' => ['email', 'password', 'rol_id'],
+        'roles' => ['nombre'],
     ];
 
     public function test_las_tablas_coinciden_con_el_diagrama(): void
     {
         foreach (self::DIAGRAMA as $tabla => $columnas) {
             $this->assertTrue(Schema::hasTable($tabla), "Falta la tabla {$tabla}");
-            $esperadas = array_merge(self::COMUNES, $columnas, self::APROBADAS[$tabla] ?? []);
+            $esperadas = array_merge(self::COMUNES, $columnas);
             $reales = Schema::getColumnListing($tabla);
             sort($esperadas);
             sort($reales);
@@ -73,13 +62,8 @@ class DiagramaBaseDatosTest extends TestCase
 
     public function test_no_hay_tablas_de_negocio_fuera_del_diagrama(): void
     {
-        // Tablas propias de Laravel y de Spatie (roles, D9)
-        $infraestructura = [
-            'cache', 'cache_locks', 'failed_jobs', 'job_batches', 'jobs', 'migrations', 'password_reset_tokens', 'sessions',
-            'roles', 'permissions', 'model_has_roles', 'model_has_permissions', 'role_has_permissions',
-            // D-M6 (aprobada por Josmy el 13/10/2026): tabla estándar de avisos de Laravel, excepción justificada
-            'notifications',
-        ];
+        // Tablas propias de Laravel (caché, colas, sesiones y control de migraciones)
+        $infraestructura = ['cache', 'cache_locks', 'failed_jobs', 'job_batches', 'jobs', 'migrations', 'sessions'];
         $tablas = array_column(Schema::getTables(Schema::getConnection()->getDatabaseName()), 'name');
         $sobran = array_values(array_diff($tablas, array_keys(self::DIAGRAMA), $infraestructura));
 

@@ -12,7 +12,7 @@ use Tests\Feature\M1\DatosM1;
 use Tests\TestCase;
 
 /**
- * M2.3: plan de estudios por grado (D11) y asignaturas únicas por plan.
+ * M2.3: plan de estudios con los campos del diagrama y asignaturas únicas por plan.
  */
 class PlanEstudioTest extends TestCase
 {
@@ -22,22 +22,18 @@ class PlanEstudioTest extends TestCase
 
     private Grado $primero;
 
-    private Grado $segundo;
-
     protected function setUp(): void
     {
         parent::setUp();
         $this->sembrarRoles();
         $this->director = $this->usuario(User::ROL_DIRECTOR);
         $this->primero = Grado::create(['nombre' => 'Primer grado']);
-        $this->segundo = Grado::create(['nombre' => 'Segundo grado']);
     }
 
     private function datosPlan(array $cambios = []): array
     {
         return array_merge([
             'nombre' => 'Plan Básica 2026',
-            'grado_id' => $this->primero->id,
             'especialidad_id' => null,
             'estado' => true,
             'fecha_inicio' => '2026-01-15',
@@ -64,7 +60,7 @@ class PlanEstudioTest extends TestCase
         ]);
         $seccion = DB::table('secciones')->insertGetId([
             'nombre' => 'A', 'capacidad' => 30, 'turno' => 'matutino',
-            'grado_id' => $asignatura->planEstudio->grado_id, 'profesor_id' => $profesor,
+            'grado_id' => $this->primero->id, 'profesor_id' => $profesor,
         ]);
         DB::table('asignaciones')->insert([
             'profesor_id' => $profesor, 'asignatura_id' => $asignatura->id, 'seccion_id' => $seccion,
@@ -77,51 +73,43 @@ class PlanEstudioTest extends TestCase
     {
         $plan = $this->crearPlan();
 
-        $this->assertSame($this->primero->id, $plan->grado_id);
         $this->assertNull($plan->especialidad_id);
         $this->assertTrue($plan->estado);
     }
 
     public function test_plan_de_bachillerato_con_especialidad(): void
     {
-        $bachillerato = Grado::create(['nombre' => 'Primer año de bachillerato']);
         $especialidad = DB::table('especialidades')->insertGetId(['nombre' => 'Bachillerato General']);
 
-        $plan = $this->crearPlan(['grado_id' => $bachillerato->id, 'especialidad_id' => $especialidad]);
+        $plan = $this->crearPlan(['especialidad_id' => $especialidad]);
 
         $this->como($this->director)->getJson("/api/plan-estudios/{$plan->id}")->assertOk()
-            ->assertJsonPath('plan.grado.nombre', 'Primer año de bachillerato')
+            ->assertJsonMissingPath('plan.grado_id')
             ->assertJsonPath('plan.especialidad.nombre', 'Bachillerato General');
     }
 
     public function test_validaciones_del_plan(): void
     {
         $this->como($this->director)->postJson('/api/plan-estudios', [])->assertStatus(422)
-            ->assertJsonValidationErrors(['nombre', 'grado_id', 'estado', 'fecha_inicio', 'fecha_fin', 'fecha_aprobacion', 'descripcion']);
+            ->assertJsonValidationErrors(['nombre', 'estado', 'fecha_inicio', 'fecha_fin', 'fecha_aprobacion', 'descripcion']);
 
         $this->como($this->director)->postJson('/api/plan-estudios', $this->datosPlan([
-            'nombre' => str_repeat('a', 31), 'grado_id' => 999, 'especialidad_id' => 999,
+            'nombre' => str_repeat('a', 31), 'especialidad_id' => 999,
             'fecha_fin' => '2026-01-01', 'descripcion' => str_repeat('d', 201),
-        ]))->assertStatus(422)->assertJsonValidationErrors(['nombre', 'grado_id', 'especialidad_id', 'fecha_fin', 'descripcion']);
+        ]))->assertStatus(422)->assertJsonValidationErrors(['nombre', 'especialidad_id', 'fecha_fin', 'descripcion']);
     }
 
-    public function test_solo_un_plan_vigente_por_grado_y_especialidad(): void
+    public function test_planes_vigentes_y_no_vigentes(): void
     {
         $vigente = $this->crearPlan();
-
-        $this->como($this->director)->postJson('/api/plan-estudios', $this->datosPlan(['nombre' => 'Plan nuevo']))
-            ->assertStatus(409);
-
-        // Uno no vigente sí se puede registrar, y otro grado tiene su propio vigente
+        $this->crearPlan(['nombre' => 'Plan Básica 2027']);
         $this->crearPlan(['nombre' => 'Plan anterior', 'estado' => false]);
-        $this->crearPlan(['grado_id' => $this->segundo->id]);
 
-        // Al marcar el actual como no vigente, el nuevo se puede activar
         $this->como($this->director)->putJson("/api/plan-estudios/{$vigente->id}", $this->datosPlan(['estado' => false]))->assertOk();
-        $this->crearPlan(['nombre' => 'Plan nuevo']);
 
-        $this->como($this->director)->getJson("/api/plan-estudios?grado_id={$this->primero->id}&vigente=1")->assertOk()
-            ->assertJsonCount(1, 'planes')->assertJsonPath('planes.0.nombre', 'Plan nuevo');
+        $this->como($this->director)->getJson('/api/plan-estudios?vigente=1')->assertOk()
+            ->assertJsonCount(1, 'planes')->assertJsonPath('planes.0.nombre', 'Plan Básica 2027');
+        $this->como($this->director)->getJson('/api/plan-estudios?vigente=0')->assertOk()->assertJsonCount(2, 'planes');
     }
 
     public function test_plan_con_asignaturas_no_se_elimina(): void
@@ -136,35 +124,12 @@ class PlanEstudioTest extends TestCase
         $this->assertNull(PlanEstudio::find($vacio->id));
     }
 
-    public function test_plan_con_asignaciones_no_cambia_de_grado(): void
-    {
-        $plan = $this->crearPlan();
-        $asignatura = Asignatura::create(['nombre' => 'Lenguaje', 'plan_estudio_id' => $plan->id]);
-
-        // Sin asignaciones el grado se puede corregir
-        $this->como($this->director)->putJson("/api/plan-estudios/{$plan->id}", $this->datosPlan(['grado_id' => $this->segundo->id]))->assertOk();
-        $this->como($this->director)->putJson("/api/plan-estudios/{$plan->id}", $this->datosPlan())->assertOk();
-
-        $this->asignacionDe($asignatura->fresh());
-        $this->como($this->director)->putJson("/api/plan-estudios/{$plan->id}", $this->datosPlan(['grado_id' => $this->segundo->id]))
-            ->assertStatus(409);
-        $this->assertSame($this->primero->id, $plan->fresh()->grado_id);
-    }
-
-    public function test_grado_con_plan_no_se_elimina(): void
-    {
-        $this->crearPlan();
-
-        $this->como($this->director)->deleteJson("/api/grados/{$this->primero->id}")->assertStatus(409)
-            ->assertJsonPath('message', 'No se puede eliminar el grado porque tiene planes de estudio asociados');
-    }
-
     // --- Asignaturas ---
 
-    public function test_misma_asignatura_en_planes_de_distintos_grados(): void
+    public function test_misma_asignatura_en_planes_distintos(): void
     {
         $plan1 = $this->crearPlan();
-        $plan2 = $this->crearPlan(['grado_id' => $this->segundo->id]);
+        $plan2 = $this->crearPlan(['nombre' => 'Plan Básica 2027']);
 
         $this->como($this->director)->postJson('/api/asignaturas', ['nombre' => 'Matemática', 'plan_estudio_id' => $plan1->id])->assertCreated();
         $this->como($this->director)->postJson('/api/asignaturas', ['nombre' => 'Matemática', 'plan_estudio_id' => $plan2->id])->assertCreated();
@@ -182,29 +147,25 @@ class PlanEstudioTest extends TestCase
             ->assertStatus(422)->assertJsonValidationErrors('plan_estudio_id');
     }
 
-    public function test_pensum_del_grado_solo_incluye_el_plan_vigente(): void
+    public function test_asignaturas_por_plan(): void
     {
         $vigente = $this->crearPlan();
         $anterior = $this->crearPlan(['nombre' => 'Plan 2020', 'estado' => false]);
-        $otroGrado = $this->crearPlan(['grado_id' => $this->segundo->id]);
         Asignatura::create(['nombre' => 'Lenguaje', 'plan_estudio_id' => $vigente->id]);
         Asignatura::create(['nombre' => 'Matemática', 'plan_estudio_id' => $vigente->id]);
         Asignatura::create(['nombre' => 'Moral', 'plan_estudio_id' => $anterior->id]);
-        Asignatura::create(['nombre' => 'Inglés', 'plan_estudio_id' => $otroGrado->id]);
 
         $docente = $this->usuario(User::ROL_DOCENTE);
-        $nombres = $this->como($docente)->getJson("/api/asignaturas?grado_id={$this->primero->id}")->assertOk()
+        $nombres = $this->como($docente)->getJson("/api/asignaturas?plan_estudio_id={$vigente->id}")->assertOk()
             ->json('asignaturas.*.nombre');
         $this->assertSame(['Lenguaje', 'Matemática'], $nombres);
-
-        $this->como($docente)->getJson("/api/asignaturas?plan_estudio_id={$anterior->id}")->assertOk()
-            ->assertJsonCount(1, 'asignaturas')->assertJsonPath('asignaturas.0.nombre', 'Moral');
+        $this->como($docente)->getJson('/api/asignaturas')->assertOk()->assertJsonCount(3, 'asignaturas');
     }
 
     public function test_asignatura_con_asignaciones_no_se_elimina_ni_cambia_de_plan(): void
     {
         $plan = $this->crearPlan();
-        $otro = $this->crearPlan(['grado_id' => $this->segundo->id]);
+        $otro = $this->crearPlan(['nombre' => 'Plan Básica 2027']);
         $asignatura = Asignatura::create(['nombre' => 'Lenguaje', 'plan_estudio_id' => $plan->id]);
         $this->asignacionDe($asignatura);
 

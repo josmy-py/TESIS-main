@@ -26,8 +26,8 @@ class PropiedadDatosTest extends TestCase
         parent::setUp();
         $this->sembrarRoles();
         $this->catalogos = $this->catalogosBasicos();
-        $this->a = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000001-8']);
-        $this->b = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000002-6']);
+        $this->a = $this->usuario(User::ROL_ENCARGADO);
+        $this->b = $this->usuario(User::ROL_ENCARGADO);
     }
 
     public function test_estudiante_ajeno_no_se_modifica(): void
@@ -107,9 +107,8 @@ class PropiedadDatosTest extends TestCase
         $this->como($this->a)->postJson('/api/parientes', ['estudiante_id' => $deA->id, 'padre_id' => $padreDeB->id, 'parentesco' => 'Padre'])->assertNotFound();
         $this->como($this->a)->postJson('/api/parientes', ['estudiante_id' => $deB->id, 'padre_id' => $padreDeB->id, 'parentesco' => 'Padre'])->assertNotFound();
 
-        // Padre que es la propia cuenta: debe coincidir el DUI
+        // Padre que es la propia cuenta: un DUI ya registrado se rechaza
         $this->como($this->a)->postJson('/api/padres', ['nombre' => 'A', 'dui' => '00016297-5', 'es_encargado' => true])->assertStatus(422);
-        $this->como($this->a)->postJson('/api/padres', ['nombre' => 'A', 'dui' => '00000002-6', 'es_encargado' => true])->assertStatus(409);
         $this->como($this->a)->postJson('/api/padres', ['nombre' => 'A', 'dui' => '000000018', 'es_encargado' => true])
             ->assertCreated()->assertJsonPath('padre.user_id', $this->a->id)->assertJsonPath('padre.dui', '00000001-8');
 
@@ -129,18 +128,16 @@ class PropiedadDatosTest extends TestCase
         $this->como($this->a)->getJson('/api/profesores')->assertStatus(403);
     }
 
-    // Desde M3 la cuenta la elige el sistema por DUI: un user_id enviado por el cliente se ignora
-    public function test_perfil_docente_exige_cuenta_docente_con_mismo_dui(): void
+    // La cuenta del docente se elige por correo: un user_id enviado por el cliente se ignora
+    public function test_perfil_docente_usa_la_cuenta_docente_del_correo(): void
     {
-        \Illuminate\Support\Facades\Notification::fake();
         $director = $this->usuario(User::ROL_DIRECTOR);
-        $docente = $this->usuario(User::ROL_DOCENTE, ['dui' => '00016297-5', 'email' => 'prof@example.com']);
+        $docente = $this->usuario(User::ROL_DOCENTE, ['email' => 'prof@example.com']);
         $datos = ['nombre' => 'Prof', 'dui' => '000162975', 'fecha_nacimiento' => '1990-01-01',
-            'telefono' => '7123-4567', 'direccion' => 'X', 'especialidad' => 'Lenguaje',
-            'fecha_contratacion' => '2015-01-10', 'email' => 'prof@example.com'];
+            'telefono' => '7123-4567', 'direccion' => 'X', 'email' => 'prof@example.com'];
 
-        $this->como($director)->postJson('/api/profesores', array_merge($datos, ['dui' => $this->a->dui]))
-            ->assertStatus(422)->assertJsonValidationErrors('dui');
+        $this->como($director)->postJson('/api/profesores', array_merge($datos, ['email' => $this->a->email]))
+            ->assertStatus(422)->assertJsonValidationErrors('email');
         $this->como($director)->postJson('/api/profesores', $datos + ['user_id' => $this->a->id])
             ->assertCreated()->assertJsonPath('profesor.dui', '00016297-5')
             ->assertJsonPath('profesor.user_id', $docente->id);

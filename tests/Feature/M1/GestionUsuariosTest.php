@@ -3,10 +3,7 @@
 namespace Tests\Feature\M1;
 
 use App\Models\User;
-use App\Notifications\RestablecerContrasena;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
 
 class GestionUsuariosTest extends TestCase
@@ -31,7 +28,7 @@ class GestionUsuariosTest extends TestCase
         $this->getJson('/api/usuarios')->assertStatus(401);
         $this->como($docente)->getJson('/api/usuarios')->assertStatus(403)->assertJsonStructure(['message']);
         $this->como($encargado)->postJson('/api/usuarios', [])->assertStatus(403);
-        $this->como($encargado)->patchJson("/api/usuarios/{$this->director->id}/estado", ['estado' => 'inactivo'])->assertStatus(403);
+        $this->como($encargado)->deleteJson("/api/usuarios/{$this->director->id}")->assertStatus(403);
         $this->como($docente)->putJson('/api/matriculas/1/estado', ['estado' => 'aprobado'])->assertStatus(403);
         $this->como($encargado)->putJson('/api/matriculas/1/estado', ['estado' => 'aprobado'])->assertStatus(403);
 
@@ -40,13 +37,11 @@ class GestionUsuariosTest extends TestCase
 
     public function test_listado_y_busqueda_sin_contrasenas(): void
     {
-        $docente = $this->usuario(User::ROL_DOCENTE, ['nombre' => 'Carlos Pérez', 'dui' => '00000001-8']);
-        $this->usuario(User::ROL_ENCARGADO, ['nombre' => 'Ana Ruiz']);
+        $docente = $this->usuario(User::ROL_DOCENTE, ['email' => 'carlos@siga.test']);
+        $this->usuario(User::ROL_ENCARGADO);
 
-        $this->como($this->director)->getJson('/api/usuarios?buscar=000000018')
+        $this->como($this->director)->getJson('/api/usuarios?buscar=carlos')
             ->assertOk()->assertJsonCount(1, 'usuarios')->assertJsonPath('usuarios.0.id', $docente->id);
-
-        $this->como($this->director)->getJson('/api/usuarios?buscar=carlos')->assertJsonCount(1, 'usuarios');
         $this->como($this->director)->getJson('/api/usuarios?rol=ENCARGADO')->assertJsonCount(1, 'usuarios');
         $this->como($this->director)->getJson('/api/usuarios?rol=CLIENTE')->assertStatus(422);
 
@@ -59,64 +54,48 @@ class GestionUsuariosTest extends TestCase
         $this->como($this->director)->getJson('/api/usuarios/9999')->assertNotFound();
     }
 
-    public function test_director_crea_cuenta_con_enlace_para_definir_contrasena(): void
+    public function test_director_crea_cuenta_con_contrasena_inicial_y_rol(): void
     {
-        Notification::fake();
-
         $this->como($this->director)->postJson('/api/usuarios', [
-            'nombre' => 'Docente Nuevo', 'dui' => '000000018', 'email' => 'Nuevo@siga.test',
-            'rol' => 'DOCENTE', 'password' => 'Intento123', 'estado' => 'activo',
+            'email' => 'Nuevo@siga.test', 'rol' => 'DOCENTE', 'password' => 'Inicial123',
         ])->assertCreated()
-            ->assertJsonPath('usuario.estado', 'pendiente')
             ->assertJsonPath('usuario.rol', 'DOCENTE')
-            ->assertJsonPath('usuario.dui', '00000001-8');
+            ->assertJsonPath('usuario.email', 'nuevo@siga.test');
 
-        $nuevo = User::where('email', 'nuevo@siga.test')->firstOrFail();
-        $this->assertFalse(\Hash::check('Intento123', $nuevo->password));
+        $this->postJson('/api/auth/login', ['email' => 'nuevo@siga.test', 'password' => 'Inicial123'])->assertOk();
 
-        Notification::assertSentTo($nuevo, RestablecerContrasena::class, fn ($n) => $n->inicial && str_contains($n->url, 'inicial=1'));
-
-        // Rol no permitido y DUI duplicado en otro formato
-        $this->como($this->director)->postJson('/api/usuarios', ['nombre' => 'X', 'dui' => '00000002-6', 'email' => 'x@siga.test', 'rol' => 'ADMIN'])
+        // Rol no permitido, correo repetido y contraseña débil
+        $this->como($this->director)->postJson('/api/usuarios', ['email' => 'x@siga.test', 'password' => 'Inicial123', 'rol' => 'ADMIN'])
             ->assertStatus(422)->assertJsonValidationErrors('rol');
-        $this->como($this->director)->postJson('/api/usuarios', ['nombre' => 'X', 'dui' => '00000001-8', 'email' => 'x@siga.test', 'rol' => 'DOCENTE'])
-            ->assertStatus(422)->assertJsonValidationErrors('dui');
-
-        // La cuenta pendiente no inicia sesión ni puede activarse sin confirmar su correo
-        $this->como($this->director)->patchJson("/api/usuarios/{$nuevo->id}/estado", ['estado' => 'activo'])->assertStatus(409);
-        $this->como($this->director)->postJson("/api/usuarios/{$nuevo->id}/reenviar-enlace")->assertOk();
+        $this->como($this->director)->postJson('/api/usuarios', ['email' => 'NUEVO@siga.test', 'password' => 'Inicial123', 'rol' => 'DOCENTE'])
+            ->assertStatus(422)->assertJsonValidationErrors('email');
+        $this->como($this->director)->postJson('/api/usuarios', ['email' => 'y@siga.test', 'password' => 'corta', 'rol' => 'DOCENTE'])
+            ->assertStatus(422)->assertJsonValidationErrors('password');
     }
 
-    public function test_edicion_de_datos_y_rol(): void
+    public function test_edicion_de_correo_y_rol(): void
     {
-        $user = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000002-6']);
+        $user = $this->usuario(User::ROL_ENCARGADO);
 
-        $this->como($this->director)->putJson("/api/usuarios/{$user->id}", ['nombre' => 'N', 'email' => $user->email, 'rol' => 'DOCENTE', 'dui' => '00016297-5'])
-            ->assertStatus(422)->assertJsonValidationErrors('dui');
+        $this->como($this->director)->putJson("/api/usuarios/{$user->id}", ['email' => 'editado@siga.test', 'rol' => 'DOCENTE'])
+            ->assertOk()->assertJsonPath('usuario.rol', 'DOCENTE')->assertJsonPath('usuario.email', 'editado@siga.test');
 
-        $this->como($this->director)->putJson("/api/usuarios/{$user->id}", ['nombre' => 'Nombre Editado', 'email' => 'editado@siga.test', 'rol' => 'DOCENTE'])
-            ->assertOk()->assertJsonPath('usuario.rol', 'DOCENTE')->assertJsonPath('usuario.dui', '00000002-6');
+        $this->assertSame('DOCENTE', $user->fresh()->rol());
 
-        $this->assertSame(['DOCENTE'], $user->fresh()->getRoleNames()->all());
-
-        $this->como($this->director)->putJson("/api/usuarios/{$user->id}", ['nombre' => 'N', 'email' => $this->director->email, 'rol' => 'DOCENTE'])
+        $this->como($this->director)->putJson("/api/usuarios/{$user->id}", ['email' => $this->director->email, 'rol' => 'DOCENTE'])
             ->assertStatus(422)->assertJsonValidationErrors('email');
     }
 
-    // 14. Último director activo y autoprotección
+    // 14. Último director y autoprotección
     public function test_proteccion_del_ultimo_director(): void
     {
-        $this->como($this->director)->patchJson("/api/usuarios/{$this->director->id}/estado", ['estado' => 'inactivo'])->assertStatus(409);
-        $this->como($this->director)->putJson("/api/usuarios/{$this->director->id}", ['nombre' => 'D', 'email' => $this->director->email, 'rol' => 'DOCENTE'])->assertStatus(409);
+        $this->como($this->director)->putJson("/api/usuarios/{$this->director->id}", ['email' => $this->director->email, 'rol' => 'DOCENTE'])->assertStatus(409);
         $this->como($this->director)->deleteJson("/api/usuarios/{$this->director->id}")->assertStatus(409);
-        $this->assertSame(User::ESTADO_ACTIVO, $this->director->fresh()->estado);
         $this->assertTrue($this->director->fresh()->hasRole('DIRECTOR'));
 
-        // Con un segundo director, uno puede desactivar al otro
+        // Con un segundo director, uno puede eliminar al otro
         $otro = $this->usuario(User::ROL_DIRECTOR);
-        $this->como($this->director)->patchJson("/api/usuarios/{$otro->id}/estado", ['estado' => 'inactivo'])
-            ->assertOk()->assertJsonPath('usuario.estado', 'inactivo');
-        $this->como($this->director)->patchJson("/api/usuarios/{$otro->id}/estado", ['estado' => 'activo'])->assertOk();
+        $this->como($this->director)->deleteJson("/api/usuarios/{$otro->id}")->assertOk();
     }
 
     public function test_no_se_elimina_una_cuenta_con_datos_asociados(): void
@@ -131,6 +110,5 @@ class GestionUsuariosTest extends TestCase
 
         $this->como($this->director)->deleteJson("/api/usuarios/{$sinDatos->id}")->assertOk();
         $this->assertDatabaseMissing('users', ['id' => $sinDatos->id]);
-        $this->assertSame(0, DB::table('model_has_roles')->where('model_id', $sinDatos->id)->count());
     }
 }

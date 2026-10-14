@@ -11,6 +11,8 @@ use Illuminate\Validation\ValidationException;
 /**
  * Encargados (D3, D-E6): familiar responsable que no es el padre ni la madre
  * (parentescos del diagrama). Una persona por DUI, validado en la API.
+ * El responsable de la cuenta es uno solo: su registro en `padres` o en
+ * `encargados`, con el user_id de la cuenta; nunca ambos.
  * - La cuenta ENCARGADO registra y edita solo su propio perfil (mismo DUI de la cuenta).
  * - El encargado ve su perfil y los encargados de las matrículas de sus estudiantes.
  * - El DIRECTOR gestiona todos; si existe una cuenta ENCARGADO con el mismo DUI, se enlaza sola.
@@ -40,28 +42,23 @@ class EncargadoService
         $dui = DuiFormato::normalizar($data['dui']);
         $existente = Encargado::whereIn('dui', $this->variantes($dui))->first();
 
+        if ($existente) {
+            throw ValidationException::withMessages(['dui' => 'Ya existe un encargado con este DUI.']);
+        }
+
         if ($propietarioId) {
-            if ($dui !== $cuenta->dui) {
-                throw ValidationException::withMessages(['dui' => 'Solo puede registrar su propio perfil de encargado, con el DUI de su cuenta.']);
+            // Si la cuenta es el padre o la madre responsable, no se registra otro responsable
+            if (\App\Models\Padre::where('user_id', $cuenta->id)->exists()) {
+                throw new \DomainException('Usted está registrado como padre o madre: es el responsable de sus estudiantes y no se registran encargados adicionales.');
             }
             if (Encargado::where('user_id', $cuenta->id)->exists()) {
                 throw new \DomainException('Ya tiene un perfil de encargado registrado.');
-            }
-            // Verificación segura: el registro sin cuenta con su mismo DUI es esa persona
-            if ($existente) {
-                $existente->update($this->campos($data, $dui) + ['user_id' => $cuenta->id]);
-
-                return $existente->fresh();
             }
 
             return Encargado::create($this->campos($data, $dui) + ['user_id' => $cuenta->id]);
         }
 
-        if ($existente) {
-            throw ValidationException::withMessages(['dui' => 'Ya existe un encargado con este DUI.']);
-        }
-
-        return Encargado::create($this->campos($data, $dui) + ['user_id' => $this->cuentaConDui($dui)?->id]);
+        return Encargado::create($this->campos($data, $dui) + ['user_id' => null]);
     }
 
     public function actualizar($id, array $data, ?int $propietarioId): Encargado
@@ -73,9 +70,6 @@ class EncargadoService
         }
 
         $dui = DuiFormato::normalizar($data['dui']);
-        if ($encargado->user_id !== null && $dui !== $encargado->user?->dui) {
-            throw ValidationException::withMessages(['dui' => 'El DUI debe coincidir con el de la cuenta de esta persona.']);
-        }
         if (Encargado::whereIn('dui', $this->variantes($dui))->whereKeyNot($encargado->id)->exists()) {
             throw ValidationException::withMessages(['dui' => 'Ya existe un encargado con este DUI.']);
         }
@@ -102,13 +96,6 @@ class EncargadoService
             $q->where('user_id', $propietarioId)
                 ->orWhereHas('matriculas', fn ($m) => $m->whereIn('estudiante_id', Estudiante::where('user_id', $propietarioId)->select('id')));
         }));
-    }
-
-    private function cuentaConDui(string $dui): ?User
-    {
-        $user = User::where('dui', $dui)->first();
-
-        return $user && $user->hasRole(User::ROL_ENCARGADO) && ! Encargado::where('user_id', $user->id)->exists() ? $user : null;
     }
 
     private function campos(array $data, string $dui): array

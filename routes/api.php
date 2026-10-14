@@ -14,7 +14,11 @@ use App\Http\Controllers\EnfermedadController;
 use App\Http\Controllers\EstudianteController;
 use App\Http\Controllers\ProfesorController;
 use App\Http\Controllers\MatriculaController;
-use App\Http\Controllers\NotificacionController;
+use App\Http\Controllers\NotasController;
+use App\Http\Controllers\ConductaController;
+use App\Http\Controllers\ConsultaAcademicaController;
+use App\Http\Controllers\LibretaController;
+use App\Http\Controllers\ReporteController;
 use App\Http\Controllers\PadreController;
 use App\Http\Controllers\PeriodoEscolarController;
 use App\Http\Controllers\PlanEstudioController;
@@ -26,19 +30,8 @@ Route::prefix('auth')->group(function(){
     // Públicas, con límite de intentos
     Route::post('register', [AuthController::class, 'register'])->middleware('throttle:registro');
     Route::post('login', [AuthController::class, 'login'])->middleware('throttle:login');
-    Route::post('reenviar-activacion', [AuthController::class, 'reenviarActivacion'])->middleware('throttle:correo');
-    Route::post('olvide-contrasena', [AuthController::class, 'olvideContrasena'])->middleware('throttle:correo');
-    Route::post('restablecer-contrasena', [AuthController::class, 'restablecerContrasena'])->middleware('throttle:restablecer');
 
-    // Enlace de activación firmado y temporal (lo llama el frontend desde /activar)
-    Route::get('activar/{id}/{hash}', [AuthController::class, 'activar'])
-        ->middleware(['signed', 'throttle:activacion'])
-        ->name('auth.activar');
-
-    // La validación del DUI (formato, dígito verificador y unicidad) se hace en register;
-    // ya no existe un endpoint validar-dui separado (decisión A2 de M1).
-
-    Route::middleware(['auth:api', 'activo'])->group(function(){
+    Route::middleware(['auth:api', 'sesion'])->group(function(){
         Route::get('me',[AuthController::class, 'me']);
         Route::post('logout',[AuthController::class, 'logout']);
         Route::post('refresh',[AuthController::class, 'refresh']);
@@ -46,10 +39,7 @@ Route::prefix('auth')->group(function(){
     });
 });
 
-Route::middleware(['auth:api', 'activo'])->group(function () {
-    // M6.1 (D-M6): avisos de la cuenta autenticada
-    Route::get('notificaciones', [NotificacionController::class, 'index']);
-    Route::post('notificaciones/{id}/leida', [NotificacionController::class, 'marcarLeida']);
+Route::middleware(['auth:api', 'sesion'])->group(function () {
 
     // Estas rutas de consulta deben estar accesibles para el Cliente (para llenar los selects)
     Route::get('grados/catalogo', [GradoController::class, 'catalogo']);
@@ -78,7 +68,7 @@ Route::middleware(['auth:api', 'activo'])->group(function () {
 
 // 🟢 1. Rutas accesibles para Encargados y Administradores
 // Los controladores limitan al ENCARGADO a los registros de su propia cuenta.
-Route::middleware(['auth:api', 'activo', 'role:ENCARGADO|DIRECTOR'])->group(function () {
+Route::middleware(['auth:api', 'sesion', 'role:ENCARGADO|DIRECTOR'])->group(function () {
     Route::post('padres/buscar-dui', [PadreController::class, 'buscarPorDui']);
     // M5: estudiantes y familia (D3). El encargado solo ve lo de su cuenta.
     Route::get('familia/perfil', [EncargadoController::class, 'perfil']);
@@ -101,27 +91,30 @@ Route::middleware(['auth:api', 'activo', 'role:ENCARGADO|DIRECTOR'])->group(func
     // M6.1: opciones de promoción, archivos privados (D-M9) y cancelar pendientes (D-M7)
     Route::get('matriculas/estudiantes/{estudianteId}/opciones', [MatriculaController::class, 'opciones'])->whereNumber('estudianteId');
     Route::get('matriculas/{id}/archivos/{tipo}', [MatriculaController::class, 'archivo'])->whereNumber('id')->whereIn('tipo', ['foto', 'documento']);
+    // M11: Matricula.generarComprobante()
+    Route::get('matriculas/{id}/comprobante', [ConsultaAcademicaController::class, 'comprobante'])->whereNumber('id');
     Route::apiResource('matriculas', MatriculaController::class);
+    // M10: Consultar estudiante > Consultar notas / Consultar conducta
+    Route::get('estudiantes/{id}/notas', [ConsultaAcademicaController::class, 'notas'])->whereNumber('id');
+    Route::get('estudiantes/{id}/asignaturas', [ConsultaAcademicaController::class, 'asignaturas'])->whereNumber('id');
+    Route::get('estudiantes/{id}/conducta', [ConsultaAcademicaController::class, 'conducta'])->whereNumber('id');
 });
 
 // 🔴 2. Rutas Exclusivas para el Administrador (Gestión del Sistema)
-Route::middleware(['auth:api', 'activo', 'role:DIRECTOR'])->group(function () {
+Route::middleware(['auth:api', 'sesion', 'role:DIRECTOR'])->group(function () {
     // Gestión de usuarios (M1)
     Route::get('usuarios', [UsuarioController::class, 'index']);
     Route::post('usuarios', [UsuarioController::class, 'store']);
     Route::get('usuarios/{id}', [UsuarioController::class, 'show']);
     Route::put('usuarios/{id}', [UsuarioController::class, 'update']);
-    Route::patch('usuarios/{id}/estado', [UsuarioController::class, 'cambiarEstado']);
-    Route::post('usuarios/{id}/reenviar-enlace', [UsuarioController::class, 'reenviarEnlace']);
     Route::delete('usuarios/{id}', [UsuarioController::class, 'destroy']);
 
-    // M5: D-E3 cambio de cuenta del estudiante; eliminar encargados sin matrículas
-    Route::put('estudiantes/{id}/cuenta', [EstudianteController::class, 'cambiarCuenta'])->whereNumber('id');
+    // M5: eliminar encargados sin matrículas
     Route::delete('encargados/{encargado}', [EncargadoController::class, 'destroy']);
 
     // Aprobar o rechazar matrículas es una acción del Director
     Route::put('matriculas/{id}/estado', [MatriculaController::class, 'estadoMatricula'])->whereNumber('id');
-    Route::put('matriculas/{id}/seccion', [MatriculaController::class, 'cambiarSeccion'])->whereNumber('id');
+    Route::get('matriculas/{id}/secciones', [MatriculaController::class, 'seccionesParaAsignar'])->whereNumber('id');
     Route::apiResource('plan-estudios', PlanEstudioController::class)->only(['store', 'update', 'destroy']);
     Route::apiResource('asignaturas', AsignaturaController::class)->only(['store', 'update', 'destroy']);
     Route::apiResource('grados', GradoController::class)->only(['store', 'update', 'destroy']);
@@ -129,8 +122,7 @@ Route::middleware(['auth:api', 'activo', 'role:DIRECTOR'])->group(function () {
     Route::apiResource('discapacidades', DiscapacidadController::class)->only(['store', 'update', 'destroy']);
     Route::apiResource('enfermedades', EnfermedadController::class)->only(['store', 'update', 'destroy']);
 
-    // Calendario escolar (M2.2): administración y transiciones de estado
-    Route::get('anios-lectivos/diagnostico', [AnioLectivoController::class, 'diagnostico']);
+    // Calendario escolar (M2.2): administración
     Route::post('anios-lectivos', [AnioLectivoController::class, 'store']);
     Route::put('anios-lectivos/{id}', [AnioLectivoController::class, 'update'])->whereNumber('id');
     Route::delete('anios-lectivos/{id}', [AnioLectivoController::class, 'destroy'])->whereNumber('id');
@@ -139,17 +131,35 @@ Route::middleware(['auth:api', 'activo', 'role:DIRECTOR'])->group(function () {
     Route::post('anios-lectivos/{id}/periodos', [AnioLectivoController::class, 'agregarPeriodo'])->whereNumber('id');
     Route::put('periodos-escolares/{id}', [PeriodoEscolarController::class, 'update'])->whereNumber('id');
     Route::delete('periodos-escolares/{id}', [PeriodoEscolarController::class, 'destroy'])->whereNumber('id');
-    Route::post('periodos-escolares/{id}/abrir', [PeriodoEscolarController::class, 'abrir'])->whereNumber('id');
-    Route::post('periodos-escolares/{id}/cerrar', [PeriodoEscolarController::class, 'cerrar'])->whereNumber('id');
-    Route::post('periodos-escolares/{id}/reabrir', [PeriodoEscolarController::class, 'reabrir'])->whereNumber('id');
     Route::apiResource('secciones', SeccionController::class);
     Route::apiResource('profesores', ProfesorController::class);
     // M4: asignación académica (PUT solo cambia el docente; la carga de un docente se guarda de una vez)
     Route::apiResource('asignaciones', AsignacionController::class);
     Route::put('profesores/{id}/carga', [AsignacionController::class, 'guardarCarga'])->whereNumber('id');
+    // M11: Registrar estudiante > Consultar expediente
+    Route::get('estudiantes/{id}/expediente', [ConsultaAcademicaController::class, 'expediente'])->whereNumber('id');
+    // M12: Generar reportes académicos
+    Route::get('reportes/notas', [ReporteController::class, 'notas']);
+    Route::get('reportes/conducta', [ReporteController::class, 'conducta']);
 });
 
 // M4: cada docente consulta su propia carga académica (tesis, págs. 58 y 68)
-Route::middleware(['auth:api', 'activo', 'role:DOCENTE'])->group(function () {
+Route::middleware(['auth:api', 'sesion', 'role:DOCENTE'])->group(function () {
     Route::get('docente/carga', [AsignacionController::class, 'miCarga']);
+    // M7 Notas: estudiantes, evaluaciones y calificaciones de sus asignaciones
+    Route::get('docente/asignaciones/{id}/estudiantes', [NotasController::class, 'estudiantes'])->whereNumber('id');
+    Route::get('docente/asignaciones/{id}/evaluaciones', [NotasController::class, 'evaluaciones'])->whereNumber('id');
+    Route::post('docente/asignaciones/{id}/evaluaciones', [NotasController::class, 'crearEvaluacion'])->whereNumber('id');
+    Route::delete('docente/evaluaciones/{id}', [NotasController::class, 'eliminarEvaluacion'])->whereNumber('id');
+    Route::get('docente/evaluaciones/{id}/calificaciones', [NotasController::class, 'calificaciones'])->whereNumber('id');
+    Route::put('docente/evaluaciones/{id}/calificaciones', [NotasController::class, 'guardarCalificaciones'])->whereNumber('id');
+    // M8 Conducta: registrar observaciones y seguimiento conductual
+    Route::get('docente/secciones/{id}/conducta', [ConductaController::class, 'index'])->whereNumber('id');
+    Route::put('docente/secciones/{id}/conducta', [ConductaController::class, 'guardar'])->whereNumber('id');
+    // M9 Libreta: boletas de una materia por periodo (la nota final se calcula sola)
+    Route::get('docente/asignaciones/{id}/libreta', [LibretaController::class, 'show'])->whereNumber('id');
+    Route::post('docente/asignaciones/{id}/libreta', [LibretaController::class, 'generar'])->whereNumber('id');
+    // M12 Libreta > Reporte de notas y Reporte de conducta
+    Route::get('docente/reportes/notas', [ReporteController::class, 'notas']);
+    Route::get('docente/reportes/conducta', [ReporteController::class, 'conducta']);
 });

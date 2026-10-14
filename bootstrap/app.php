@@ -6,8 +6,6 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
-use Illuminate\Routing\Exceptions\InvalidSignatureException;
-use Spatie\Permission\Exceptions\UnauthorizedException;
 
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -18,17 +16,12 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        $middleware->alias
-        ([
-            'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
-            'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
-            'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermission::class,
+        $middleware->alias([
+            'role' => \App\Http\Middleware\TieneRol::class,
         ]);
 
-        // "activo" acompaña siempre a auth:api: cuenta en estado activo y token
-        // emitido con la contraseña vigente (cierre de M1)
-        $middleware->group('activo', [
-            \App\Http\Middleware\CuentaActiva::class,
+        // "sesion" acompaña siempre a auth:api: token emitido con la contraseña vigente
+        $middleware->group('sesion', [
             \App\Http\Middleware\SesionVigente::class,
         ]);
 
@@ -43,18 +36,6 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (AuthenticationException $e, Request $request) {
             if ($request->is('api/*')) {
                 return response()->json(['message' => 'No autenticado. Inicie sesión nuevamente.'], 401);
-            }
-        });
-
-        $exceptions->render(function (UnauthorizedException $e, Request $request) {
-            if ($request->is('api/*')) {
-                return response()->json(['message' => 'No tiene permiso para realizar esta acción.'], 403);
-            }
-        });
-
-        $exceptions->render(function (InvalidSignatureException $e, Request $request) {
-            if ($request->is('api/*')) {
-                return response()->json(['message' => 'El enlace no es válido o ha expirado.'], 403);
             }
         });
 

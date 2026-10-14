@@ -22,12 +22,6 @@ class Grado extends Model
         return $this->hasMany(Seccion::class);
     }
 
-    // Planes de estudio del grado (M2.3); sus asignaturas forman el pensum
-    public function planesEstudio()
-    {
-        return $this->hasMany(PlanEstudio::class);
-    }
-
     public function getOrdenAttribute(): ?int
     {
         return CatalogoGrados::orden($this->nombre);

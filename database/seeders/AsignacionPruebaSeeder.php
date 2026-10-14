@@ -84,10 +84,11 @@ class AsignacionPruebaSeeder extends Seeder
 
     private function planVigente(Grado $grado, AnioLectivo $anio): PlanEstudio
     {
-        return PlanEstudio::where('grado_id', $grado->id)->whereNull('especialidad_id')->where('estado', true)->first()
+        $nombre = mb_substr("Plan prueba {$grado->nombre}", 0, 30);
+
+        return PlanEstudio::where('nombre', $nombre)->whereNull('especialidad_id')->where('estado', true)->first()
             ?? PlanEstudio::create([
-                'nombre' => mb_substr("Plan prueba {$grado->nombre}", 0, 30),
-                'grado_id' => $grado->id,
+                'nombre' => $nombre,
                 'especialidad_id' => null,
                 'estado' => true,
                 'fecha_inicio' => $anio->fecha_inicio ?? "{$anio->nombre}-01-15",

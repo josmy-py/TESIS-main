@@ -103,15 +103,9 @@ class PadreController extends Controller
             $propietarioId = $this->propietarioId();
             $exigirEstudiante = $propietarioId !== null && ! $request->boolean('es_encargado');
 
-            // D-E4 (verificación segura): la cuenta cuyo DUI coincide con un padre aún sin
-            // cuenta es esa persona; en lugar de rechazar el DUI repetido se le asigna el registro.
-            $cuenta = $request->user();
-            $reclamar = $request->boolean('es_encargado') && $cuenta->dui !== null && $request->dui === $cuenta->dui
-                && Padre::whereIn('dui', $this->padreService->variantes($request->dui))->whereNull('user_id')->exists();
-
             $validated = $request->validate([
                 'nombre' => 'required|string|max:80',
-                'dui' => array_merge(['required', new Dui], $reclamar ? [] : ['unique:padres,dui']),
+                'dui' => ['required', new Dui, 'unique:padres,dui'],
                 'telefono' => 'nullable|string|max:15',
                 'email' => 'nullable|email|max:100',
                 'es_encargado' => 'required|boolean',
@@ -133,21 +127,14 @@ class PadreController extends Controller
                     ->findOrFail($validated['estudiante_id']);
             }
 
-            if ($reclamar) {
-                $this->usuarioService->verificarCorrespondencia($cuenta, $validated['dui'], User::ROL_ENCARGADO);
-                $padre = $this->padreService->reclamarPerfil($cuenta, $validated);
-
-                return response()->json([
-                    'message' => 'Su registro de padre o madre quedó vinculado a su cuenta',
-                    'padre' => $padre,
-                ], 200);
-            }
-
-            // Si el padre es la persona de la cuenta, debe ser una cuenta ENCARGADO con el mismo DUI
+            // Si el padre es la persona de la cuenta, debe ser una cuenta ENCARGADO
             $validated['user_id'] = null;
             if ($validated['es_encargado']) {
                 $user = $request->user();
-                $this->usuarioService->verificarCorrespondencia($user, $validated['dui'], User::ROL_ENCARGADO);
+                $this->usuarioService->verificarRol($user, User::ROL_ENCARGADO);
+                if (\App\Models\Encargado::where('user_id', $user->id)->exists()) {
+                    throw new \DomainException('Su cuenta ya tiene un perfil de encargado: el responsable de sus estudiantes es ese perfil.');
+                }
                 $validated['user_id'] = $user->id;
             }
 

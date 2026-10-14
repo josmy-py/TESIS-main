@@ -61,10 +61,13 @@ class GradosTest extends TestCase
     public function test_un_grado_en_uso_no_cambia_de_nombre(): void
     {
         $grado = Grado::create(['nombre' => 'Primer grado']);
-        DB::table('plan_estudios')->insert([
-            'nombre' => 'Plan', 'estado' => true, 'fecha_inicio' => '2026-01-01', 'fecha_fin' => '2030-12-31',
-            'descripcion' => 'X', 'fecha_aprobacion' => '2025-12-01', 'grado_id' => $grado->id,
+        $profesor = DB::table('profesores')->insertGetId([
+            'nombre' => 'Profe', 'dui' => '00000002-6', 'fecha_nacimiento' => '1990-01-01', 'codigo' => 'P1',
+            'telefono' => '7000-0000', 'direccion' => 'X', 'user_id' => $this->usuario(User::ROL_DOCENTE)->id,
         ]);
+        $anio = DB::table('anios_lectivos')->insertGetId(['nombre' => '2026', 'estado' => 'inactivo']);
+        DB::table('secciones')->insert(['nombre' => 'A', 'capacidad' => 30, 'turno' => 'matutino', 'grado_id' => $grado->id,
+            'profesor_id' => $profesor, 'anio_lectivo_id' => $anio]);
 
         $this->como($this->director)->putJson("/api/grados/{$grado->id}", ['nombre' => 'Segundo grado'])->assertStatus(409);
         // Guardar el mismo nombre sí se permite
@@ -132,7 +135,7 @@ class GradosTest extends TestCase
 
     public function test_promocion_sigue_el_orden_y_no_el_id(): void
     {
-        $encargado = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000001-8']);
+        $encargado = $this->usuario(User::ROL_ENCARGADO);
         $catalogos = $this->catalogosBasicos();
 
         // Se crean en desorden: el id de "Segundo" no es el de "Primero" + 1
@@ -166,7 +169,7 @@ class GradosTest extends TestCase
 
     public function test_promocion_falla_controlada_sin_orden_o_sin_siguiente(): void
     {
-        $encargado = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000001-8']);
+        $encargado = $this->usuario(User::ROL_ENCARGADO);
         $catalogos = $this->catalogosBasicos();
 
         $sinOrden = Grado::create(['nombre' => 'Grado heredado']); // dato anterior al catálogo

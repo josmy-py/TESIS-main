@@ -8,8 +8,8 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Planes de estudio (M2.3). Campos según la migración: nombre varchar(30),
- * grado_id (D11), especialidad_id opcional (solo Bachillerato), estado
+ * Planes de estudio (M2.3). Campos del diagrama: nombre varchar(30),
+ * especialidad_id opcional (solo Bachillerato), estado
  * (vigente o no), fechas de inicio, fin y aprobación, y descripción.
  */
 class PlanEstudioController extends Controller
@@ -19,8 +19,6 @@ class PlanEstudioController extends Controller
     private const MENSAJES = [
         'nombre.required' => 'El nombre del plan de estudio es obligatorio.',
         'nombre.max' => 'El nombre del plan de estudio no debe exceder los 30 caracteres.',
-        'grado_id.required' => 'El grado es obligatorio.',
-        'grado_id.exists' => 'El grado seleccionado no es válido.',
         'especialidad_id.exists' => 'La especialidad seleccionada no es válida.',
         'estado.required' => 'Indique si el plan está vigente.',
         'estado.boolean' => 'El estado debe ser verdadero o falso.',
@@ -44,8 +42,6 @@ class PlanEstudioController extends Controller
     {
         try {
             $filtros = [
-                'grado_id' => $request->query('grado_id'),
-                'sin_grado' => $request->boolean('sin_grado'),
                 'vigente' => $request->has('vigente') ? $request->boolean('vigente') : null,
             ];
 
@@ -156,7 +152,6 @@ class PlanEstudioController extends Controller
     {
         return $request->validate([
             'nombre' => 'required|string|max:30',
-            'grado_id' => 'required|integer|exists:grados,id',
             'especialidad_id' => 'nullable|integer|exists:especialidades,id',
             'estado' => 'required|boolean',
             'fecha_inicio' => 'required|date',

@@ -16,7 +16,7 @@ use Illuminate\Validation\ValidationException;
 class ProfesorService
 {
     // Campos de la cuenta que se muestran con el perfil
-    private const CAMPOS_CUENTA = 'user:id,nombre,email,estado,email_verified_at';
+    private const CAMPOS_CUENTA = 'user:id,email';
 
     public function __construct(protected UsuarioService $usuarioService)
     {
@@ -47,9 +47,7 @@ class ProfesorService
     }
 
     /**
-     * Crea el perfil y su cuenta DOCENTE en una sola transacción. Si ya existe
-     * una cuenta DOCENTE con ese DUI y sin perfil (creada antes desde la
-     * gestión de usuarios), se vincula en lugar de crear otra.
+     * Crea el perfil y su cuenta DOCENTE en una sola transacción.
      */
     public function crear(array $data): Profesor
     {
@@ -63,8 +61,6 @@ class ProfesorService
                 'codigo' => $this->siguienteCodigo(),
                 'telefono' => $data['telefono'],
                 'direccion' => $data['direccion'],
-                'especialidad' => $data['especialidad'],
-                'fecha_contratacion' => $data['fecha_contratacion'],
                 'user_id' => $user->id,
             ]);
 
@@ -73,28 +69,18 @@ class ProfesorService
     }
 
     /**
-     * El código, el DUI y la cuenta no cambian. El nombre se mantiene igual
-     * en el perfil y en la cuenta.
+     * actualizarDatos: el código, el DUI y la cuenta no cambian.
      */
     public function actualizar($id, array $data): Profesor
     {
         $profesor = Profesor::findOrFail($id);
 
-        DB::transaction(function () use ($profesor, $data) {
-            $profesor->update([
-                'nombre' => $data['nombre'],
-                'fecha_nacimiento' => $data['fecha_nacimiento'],
-                'telefono' => $data['telefono'],
-                'direccion' => $data['direccion'],
-                'especialidad' => $data['especialidad'],
-                'fecha_contratacion' => $data['fecha_contratacion'],
-            ]);
-
-            if ($profesor->user && $profesor->user->nombre !== $data['nombre']) {
-                $profesor->user->nombre = $data['nombre'];
-                $profesor->user->save();
-            }
-        });
+        $profesor->update([
+            'nombre' => $data['nombre'],
+            'fecha_nacimiento' => $data['fecha_nacimiento'],
+            'telefono' => $data['telefono'],
+            'direccion' => $data['direccion'],
+        ]);
 
         return $profesor->load(self::CAMPOS_CUENTA);
     }
@@ -118,7 +104,6 @@ class ProfesorService
             $profesor->delete();
 
             if ($user && ! $this->usuarioService->tieneRegistrosAsociados($user)) {
-                $user->syncRoles([]);
                 $user->delete();
             }
         });
@@ -146,42 +131,40 @@ class ProfesorService
         return Profesor::PREFIJO_CODIGO.str_pad((string) ($ultimo + 1), 3, '0', STR_PAD_LEFT);
     }
 
+    /**
+     * Si ya existe una cuenta DOCENTE con ese correo y sin perfil (creada antes
+     * desde la gestión de usuarios), se vincula; si no, se crea con la
+     * contraseña inicial indicada.
+     */
     private function cuentaDocente(array $data): User
     {
-        $existente = User::where('dui', $data['dui'])->first();
+        $existente = User::where('email', $data['email'])->first();
 
         if ($existente) {
             if (! $existente->hasRole(User::ROL_DOCENTE)) {
                 throw ValidationException::withMessages([
-                    'dui' => ['Este DUI ya tiene una cuenta con otro rol.'],
+                    'email' => ['Este correo ya pertenece a una cuenta con otro rol.'],
                 ]);
             }
 
             if ($existente->profesor()->exists()) {
                 throw ValidationException::withMessages([
-                    'dui' => ['Este DUI ya tiene un perfil de docente.'],
-                ]);
-            }
-
-            if ($existente->email !== $data['email']) {
-                throw ValidationException::withMessages([
-                    'email' => ['Este DUI ya tiene una cuenta DOCENTE con otro correo. Use el correo de esa cuenta.'],
+                    'email' => ['Este correo ya tiene un perfil de docente.'],
                 ]);
             }
 
             return $existente;
         }
 
-        if (User::where('email', $data['email'])->exists()) {
+        if (empty($data['password'])) {
             throw ValidationException::withMessages([
-                'email' => ['Este correo ya pertenece a otra cuenta.'],
+                'password' => ['La contraseña inicial es obligatoria para crear la cuenta del docente.'],
             ]);
         }
 
         return $this->usuarioService->crearCuenta([
-            'nombre' => $data['nombre'],
-            'dui' => $data['dui'],
             'email' => $data['email'],
+            'password' => $data['password'],
         ], User::ROL_DOCENTE);
     }
 }

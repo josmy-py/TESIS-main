@@ -24,7 +24,8 @@ class MatriculaPruebaSeeder extends Seeder
      * Solicitudes de matrícula de ejemplo (M6.1): una pendiente de Nuevo ingreso
      * por estudiante de encargado@siga.test, con foto y partida generadas en el
      * disco privado. Pasa por MatriculaService, así que cumple todas las reglas
-     * (plan vigente, cupo, responsable). Idempotente: no crea otra si el
+     * (promoción y responsable). Como las llena el encargado, quedan sin
+     * sección: la asigna la dirección al aprobar. Idempotente: no crea otra si el
      * estudiante ya tiene una matrícula vigente en el año. No se ejecuta en
      * producción. Necesita FamiliaPruebaSeeder, SeccionPruebaSeeder y
      * AsignacionPruebaSeeder.
@@ -63,7 +64,6 @@ class MatriculaPruebaSeeder extends Seeder
                 $servicio->crear([
                     'ingreso' => 'Nuevo ingreso',
                     'estudiante_id' => $estudiante->id,
-                    'seccion_id' => $seccion->id,
                     'anio_lectivo_id' => $seccion->anio_lectivo_id,
                     'es_trasladado' => false,
                 ], $this->archivo('foto.png', $this->png()), $this->archivo('partida.pdf', $this->pdf($nombre)), $cuenta, $cuenta->id);

@@ -4,17 +4,15 @@ namespace Tests\Feature\M3;
 
 use App\Models\Profesor;
 use App\Models\User;
-use App\Notifications\RestablecerContrasena;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Notification;
 use Tests\Feature\M1\DatosM1;
 use Tests\TestCase;
 
 /**
- * M3: registro de docentes con su cuenta, código PROF-### automático,
- * especialidad y fecha de contratación (D11), y datos no editables.
+ * M3: registro de docentes con su cuenta, código PROF-### automático y
+ * datos no editables.
  */
 class ProfesorTest extends TestCase
 {
@@ -49,8 +47,7 @@ class ProfesorTest extends TestCase
             'fecha_nacimiento' => '1990-04-20',
             'telefono' => '7123-4567',
             'direccion' => 'Colonia Escalón, San Salvador',
-            'especialidad' => 'Ciencias Naturales',
-            'fecha_contratacion' => '2018-01-10',
+            'password' => 'Inicial123',
         ], $cambios);
     }
 
@@ -61,23 +58,17 @@ class ProfesorTest extends TestCase
 
     public function test_crear_docente_crea_cuenta_docente_y_codigo_automatico(): void
     {
-        Notification::fake();
 
         $respuesta = $this->crear(['codigo' => 'X-999', 'user_id' => $this->director->id]);
 
         $respuesta->assertCreated()
             ->assertJsonPath('profesor.codigo', 'PROF-001')
-            ->assertJsonPath('profesor.especialidad', 'Ciencias Naturales')
-            ->assertJsonPath('profesor.fecha_contratacion', '2018-01-10')
             ->assertJsonPath('profesor.user.email', 'ana.lopez@example.com');
 
         $user = User::where('email', 'ana.lopez@example.com')->firstOrFail();
         $this->assertTrue($user->hasRole(User::ROL_DOCENTE));
-        $this->assertSame(User::ESTADO_PENDIENTE, $user->estado);
         $this->assertSame($user->id, Profesor::firstOrFail()->user_id);
-        $this->assertSame('Ana López', $user->nombre);
-
-        Notification::assertSentTo($user, RestablecerContrasena::class);
+        $this->postJson('/api/auth/login', ['email' => 'ana.lopez@example.com', 'password' => 'Inicial123'])->assertOk();
 
         $this->crear([
             'nombre' => 'Luis Pérez', 'dui' => $this->dui('01234567'),
@@ -87,10 +78,9 @@ class ProfesorTest extends TestCase
 
     public function test_codigo_continua_desde_el_mayor_existente(): void
     {
-        Notification::fake();
         $otro = $this->usuario(User::ROL_DOCENTE);
         Profesor::create([
-            'nombre' => 'Heredado', 'dui' => $otro->dui, 'fecha_nacimiento' => '1980-01-01',
+            'nombre' => 'Heredado', 'dui' => $this->dui('09999999'), 'fecha_nacimiento' => '1980-01-01',
             'codigo' => 'PROF-041', 'telefono' => '6000-0000', 'direccion' => 'X', 'user_id' => $otro->id,
         ]);
 
@@ -99,17 +89,16 @@ class ProfesorTest extends TestCase
 
     public function test_validaciones_al_crear(): void
     {
-        Notification::fake();
 
-        $this->crear(['especialidad' => '', 'fecha_contratacion' => '', 'email' => ''])
+        $this->crear(['email' => ''])
             ->assertStatus(422)
-            ->assertJsonValidationErrors(['especialidad', 'fecha_contratacion', 'email']);
+            ->assertJsonValidationErrors(['email']);
+
+        $this->crear(['password' => ''])
+            ->assertStatus(422)->assertJsonValidationErrors(['password']);
 
         $this->crear(['fecha_nacimiento' => now()->subYears(10)->toDateString()])
             ->assertStatus(422)->assertJsonValidationErrors(['fecha_nacimiento']);
-
-        $this->crear(['fecha_contratacion' => now()->addDay()->toDateString()])
-            ->assertStatus(422)->assertJsonValidationErrors(['fecha_contratacion']);
 
         $this->crear(['nombre' => str_repeat('a', 81)])
             ->assertStatus(422)->assertJsonValidationErrors(['nombre']);
@@ -124,36 +113,30 @@ class ProfesorTest extends TestCase
 
     public function test_correo_o_dui_de_otra_cuenta(): void
     {
-        Notification::fake();
         $encargado = $this->usuario(User::ROL_ENCARGADO);
 
         $this->crear(['email' => $encargado->email])
             ->assertStatus(422)->assertJsonValidationErrors(['email']);
-
-        $this->crear(['dui' => $encargado->dui])
-            ->assertStatus(422)->assertJsonValidationErrors(['dui']);
 
         $this->assertSame(0, Profesor::count());
     }
 
     public function test_vincula_cuenta_docente_existente_sin_perfil(): void
     {
-        Notification::fake();
         $docente = $this->usuario(User::ROL_DOCENTE, ['email' => 'previa@example.com']);
 
-        $this->crear(['dui' => $docente->dui, 'email' => 'otro@example.com'])
-            ->assertStatus(422)->assertJsonValidationErrors(['email']);
-
-        $this->crear(['dui' => $docente->dui, 'email' => 'previa@example.com'])
+        $this->crear(['email' => 'previa@example.com', 'password' => null])
             ->assertCreated()->assertJsonPath('profesor.user_id', $docente->id);
 
         $this->assertSame(2, User::count());
-        Notification::assertNothingSent();
+
+        // Esa cuenta ya tiene perfil
+        $this->crear(['email' => 'previa@example.com', 'dui' => $this->dui('01234567'), 'telefono' => '2222-3333'])
+            ->assertStatus(422)->assertJsonValidationErrors(['email']);
     }
 
-    public function test_si_falla_el_perfil_no_queda_cuenta_ni_correo(): void
+    public function test_si_falla_el_perfil_no_queda_cuenta(): void
     {
-        Notification::fake();
         $this->crear()->assertCreated();
 
         // Mismo teléfono: el perfil no pasa la validación
@@ -161,12 +144,10 @@ class ProfesorTest extends TestCase
             ->assertStatus(422)->assertJsonValidationErrors(['telefono']);
 
         $this->assertNull(User::where('email', 'otra@example.com')->first());
-        Notification::assertCount(1);
     }
 
     public function test_editar_no_permite_cambiar_codigo_dui_ni_cuenta(): void
     {
-        Notification::fake();
         $id = $this->crear()->json('profesor.id');
         $profesor = Profesor::findOrFail($id);
 
@@ -186,19 +167,16 @@ class ProfesorTest extends TestCase
             'dui' => str_replace('-', '', $profesor->dui),
             'nombre' => 'Ana María López',
             'telefono' => '6111-2222',
-            'especialidad' => 'Matemática',
         ]))->assertOk()
             ->assertJsonPath('profesor.codigo', 'PROF-001')
-            ->assertJsonPath('profesor.especialidad', 'Matemática');
+            ->assertJsonPath('profesor.nombre', 'Ana María López');
 
         $profesor->refresh();
         $this->assertSame('6111-2222', $profesor->telefono);
-        $this->assertSame('Ana María López', $profesor->user->nombre);
     }
 
     public function test_buscar_por_nombre_codigo_o_dui(): void
     {
-        Notification::fake();
         $this->crear()->assertCreated();
         $this->crear([
             'nombre' => 'Luis Pérez', 'dui' => $this->dui('01234567'),
@@ -216,7 +194,6 @@ class ProfesorTest extends TestCase
 
     public function test_eliminar_borra_perfil_y_cuenta_salvo_con_asignaciones(): void
     {
-        Notification::fake();
         $id = $this->crear()->json('profesor.id');
         $userId = Profesor::findOrFail($id)->user_id;
 

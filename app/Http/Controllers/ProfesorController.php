@@ -9,6 +9,7 @@ use App\Rules\Dui;
 use App\Support\DuiFormato;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password as ReglaPassword;
 use Illuminate\Validation\ValidationException;
 
 class ProfesorController extends Controller
@@ -26,11 +27,6 @@ class ProfesorController extends Controller
         'telefono.unique' => 'El teléfono del profesor ya está registrado.',
         'telefono.regex' => 'El teléfono debe tener 8 dígitos y empezar con 2, 6 o 7 (por ejemplo 7123-4567).',
         'direccion.required' => 'La dirección del profesor es obligatoria.',
-        'especialidad.required' => 'La especialidad del profesor es obligatoria.',
-        'especialidad.max' => 'La especialidad no debe exceder los 50 caracteres.',
-        'fecha_contratacion.required' => 'La fecha de contratación es obligatoria.',
-        'fecha_contratacion.before_or_equal' => 'La fecha de contratación no puede ser futura.',
-        'fecha_contratacion.after' => 'La fecha de contratación debe ser posterior a la fecha de nacimiento.',
     ];
 
     protected ProfesorService $profesorService;
@@ -48,8 +44,6 @@ class ProfesorController extends Controller
             'fecha_nacimiento' => 'required|date|before_or_equal:-18 years',
             'telefono' => ['required', 'string', 'max:15', 'regex:/^[267][0-9]{3}-?[0-9]{4}$/', Rule::unique('profesores', 'telefono')->ignore($id)],
             'direccion' => 'required|string|max:100',
-            'especialidad' => 'required|string|max:50',
-            'fecha_contratacion' => 'required|date|after:fecha_nacimiento|before_or_equal:today',
         ];
     }
 
@@ -93,13 +87,14 @@ class ProfesorController extends Controller
 
             $data = $request->validate(array_merge($this->reglasComunes(), [
                 'dui' => ['required', 'string', 'max:10', 'unique:profesores,dui', new Dui],
-                'email' => 'required|string|email|max:100',
+                'email' => 'required|string|email|max:255',
+                'password' => ['nullable', 'string', ReglaPassword::min(8)->letters()->numbers()],
             ]), self::MENSAJES);
 
             $profesor = $this->profesorService->crear($data);
 
             return response()->json([
-                'message' => "Docente registrado con el código {$profesor->codigo}. Se envió un enlace a su correo para definir la contraseña.",
+                'message' => "Docente registrado con el código {$profesor->codigo}.",
                 'profesor' => $profesor
             ], 201);
 
@@ -130,8 +125,8 @@ class ProfesorController extends Controller
     }
 
     /**
-     * Nombre, fecha de nacimiento, teléfono, dirección, especialidad y fecha
-     * de contratación. El código, el DUI y la cuenta no se modifican.
+     * Nombre, fecha de nacimiento, teléfono y dirección. El código, el DUI y
+     * la cuenta no se modifican.
      */
     public function update(Request $request, string $id)
     {
@@ -185,7 +180,7 @@ class ProfesorController extends Controller
 
             if (!$eliminado) {
                 return response()->json([
-                    'message' => 'No se puede eliminar el profesor porque tiene secciones o asignaciones asociadas. Desactive su cuenta en su lugar.'
+                    'message' => 'No se puede eliminar el profesor porque tiene secciones o asignaciones asociadas.'
                 ], 409);
             }
 

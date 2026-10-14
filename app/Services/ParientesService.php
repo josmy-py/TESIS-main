@@ -7,9 +7,7 @@ use App\Models\Estudiante;
 use App\Models\Padre;
 use App\Models\Pariente;
 use App\Models\User;
-use App\Support\DuiFormato;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
@@ -52,8 +50,7 @@ class ParientesService
 
     /**
      * Vincula por DUI a una persona ya registrada. El director vincula a
-     * cualquiera (queda en la bitácora); el encargado, solo a su familia o a sí
-     * mismo cuando el DUI coincide con el de su cuenta.
+     * cualquiera (queda en la bitácora); el encargado, solo a su familia.
      */
     public function vincularPorDui($estudianteId, string $dui, string $parentesco, User $cuenta, ?int $propietarioId): Padre
     {
@@ -66,24 +63,12 @@ class ParientesService
                 throw ValidationException::withMessages(['dui' => 'No hay ninguna persona registrada con ese DUI. Regístrela como padre o madre nuevo.']);
             }
         } elseif (! $padre || ! $this->padrePermitido($padre, $propietarioId)) {
-            $esLaCuenta = $padre && $padre->user_id === null && DuiFormato::normalizar($dui) === $cuenta->dui;
-            if (! $esLaCuenta) {
-                throw new \DomainException(self::REQUIERE_DIRECCION);
-            }
-            if (Padre::where('user_id', $cuenta->id)->exists()) {
-                throw new \DomainException('El usuario autenticado ya está registrado como padre.');
-            }
+            throw new \DomainException(self::REQUIERE_DIRECCION);
         }
 
         $this->validarVinculo($estudiante->id, $padre->id, $parentesco);
 
-        DB::transaction(function () use ($padre, $estudiante, $parentesco, $cuenta, $propietarioId) {
-            // Verificación segura: la cuenta con el mismo DUI es esa persona
-            if ($propietarioId && $padre->user_id === null && DuiFormato::normalizar($padre->dui) === $cuenta->dui && ! $this->padrePermitido($padre, $propietarioId)) {
-                $padre->update(['user_id' => $cuenta->id]);
-            }
-            Pariente::create(['estudiante_id' => $estudiante->id, 'padre_id' => $padre->id, 'parentesco' => $parentesco]);
-        });
+        Pariente::create(['estudiante_id' => $estudiante->id, 'padre_id' => $padre->id, 'parentesco' => $parentesco]);
 
         if (! $propietarioId) {
             $this->bitacora('vinculo_autorizado', $cuenta, [

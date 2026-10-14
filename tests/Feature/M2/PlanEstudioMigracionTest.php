@@ -38,15 +38,15 @@ class PlanEstudioMigracionTest extends TestCase
 
         Artisan::call('migrate', ['--force' => true]);
 
+        // El diagrama no tiene grado en el plan: la columna ya no existe al final
         $fila = DB::table('plan_estudios')->find($plan);
-        $this->assertNull($fila->grado_id);
+        $this->assertFalse(Schema::hasColumn('plan_estudios', 'grado_id'));
         $this->assertSame($especialidad, (int) $fila->especialidad_id);
         $this->assertSame(1, DB::table('asignaturas')->where('plan_estudio_id', $plan)->count());
 
         // El mismo nombre ya se admite en otro plan, y la especialidad es opcional
-        $grado = DB::table('grados')->insertGetId(['nombre' => 'Primer grado']);
         $otro = DB::table('plan_estudios')->insertGetId([
-            'nombre' => 'Plan Básica', 'grado_id' => $grado, 'especialidad_id' => null, 'estado' => true,
+            'nombre' => 'Plan Básica', 'especialidad_id' => null, 'estado' => true,
             'fecha_inicio' => '2026-01-15', 'fecha_fin' => '2026-11-30', 'descripcion' => 'Y', 'fecha_aprobacion' => '2025-12-01',
         ]);
         DB::table('asignaturas')->insert(['nombre' => 'Lenguaje', 'plan_estudio_id' => $otro]);

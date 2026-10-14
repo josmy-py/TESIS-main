@@ -39,20 +39,15 @@ class AnioLectivoController extends Controller
         return $this->responder(fn () => response()->json(['anios_lectivos' => $this->calendario->listar()]), 'Error al obtener los años lectivos');
     }
 
-    // Año activo y periodo abierto (para paneles y formularios)
+    // Año activo con sus periodos (para paneles y formularios)
     public function actual()
     {
         return $this->responder(function () {
-            [$anio, $periodo] = $this->calendario->actual();
+            $anio = $this->calendario->actual();
 
             return response()->json([
                 'anio_lectivo' => $anio,
-                'periodo_abierto' => $periodo,
-                'message' => match (true) {
-                    $anio === null => 'No hay un año lectivo activo.',
-                    $periodo === null => 'El año lectivo activo no tiene un periodo abierto.',
-                    default => null,
-                },
+                'message' => $anio === null ? 'No hay un año lectivo activo.' : null,
             ]);
         }, 'Error al obtener el año lectivo actual');
     }
@@ -65,11 +60,6 @@ class AnioLectivoController extends Controller
     public function periodos(string $id)
     {
         return $this->responder(fn () => response()->json(['periodos' => $this->calendario->periodos($id)]), 'Error al obtener los periodos');
-    }
-
-    public function diagnostico()
-    {
-        return $this->responder(fn () => response()->json(['diagnostico' => $this->calendario->diagnostico()]), 'Error al generar el diagnóstico');
     }
 
     public function store(Request $request)

@@ -132,6 +132,6 @@ class GeografiaTest extends TestCase
     {
         $this->sembrarRoles();
 
-        return $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000001-8']);
+        return $this->usuario(User::ROL_ENCARGADO);
     }
 }

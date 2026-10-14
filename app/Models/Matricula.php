@@ -73,6 +73,11 @@ class Matricula extends Model
         return $this->belongsTo(Enfermedad::class, 'enfermedad_id');
     }
 
+    public function expedientes()
+    {
+        return $this->hasMany(Expediente::class);
+    }
+
     public function notaFinal()
     {
         return $this->hasMany(NotaFinal::class);

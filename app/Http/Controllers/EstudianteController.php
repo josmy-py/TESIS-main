@@ -25,6 +25,7 @@ class EstudianteController extends Controller
                 'q' => 'nullable|string|max:80',
                 'estado' => 'nullable|in:inscrito,activo,inactivo,egresado,graduado',
                 'user_id' => 'nullable|integer',
+                'con_matricula_aprobada' => 'nullable|boolean',
             ]);
 
             return response()->json([
@@ -76,19 +77,6 @@ class EstudianteController extends Controller
 
             return response()->json(['message' => 'Estudiante eliminado exitosamente']);
         }, 'Error al eliminar el estudiante', 'Estudiante no encontrado');
-    }
-
-    /** D-E3 (DIRECTOR): pasa el estudiante a otra cuenta ENCARGADO. */
-    public function cambiarCuenta(Request $request, string $id)
-    {
-        return $this->responder(function () use ($request, $id) {
-            $validated = $request->validate(['user_id' => 'required|integer'], ['user_id.required' => 'Seleccione la nueva cuenta.']);
-
-            return response()->json([
-                'message' => 'El estudiante pasó a la nueva cuenta',
-                'estudiante' => $this->estudianteService->cambiarCuenta($id, (int) $validated['user_id'], $request->user()),
-            ]);
-        }, 'Error al cambiar la cuenta del estudiante', 'Estudiante no encontrado');
     }
 
     private function reglas(?int $id = null): array

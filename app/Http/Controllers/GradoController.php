@@ -87,9 +87,9 @@ class GradoController extends Controller
             ], $this->mensajes());
 
             // Cambiar el nombre cambia el orden: no se permite si el grado ya está en uso
-            if ($request->nombre !== $grado->nombre && ($grado->secciones()->exists() || $grado->planesEstudio()->exists())) {
+            if ($request->nombre !== $grado->nombre && $grado->secciones()->exists()) {
                 return response()->json([
-                    'message' => 'No se puede cambiar el nombre del grado porque ya tiene secciones o planes de estudio: cambiaría su orden en la promoción.',
+                    'message' => 'No se puede cambiar el nombre del grado porque ya tiene secciones: cambiaría su orden en la promoción.',
                 ], 409);
             }
 
@@ -127,12 +127,6 @@ class GradoController extends Controller
             if ($grado->secciones()->exists()) {
                 return response()->json([
                     'message' => 'No se puede eliminar el grado porque tiene secciones o asignaciones asociadas'
-                ], 409);
-            }
-
-            if ($grado->planesEstudio()->exists()) {
-                return response()->json([
-                    'message' => 'No se puede eliminar el grado porque tiene planes de estudio asociados'
                 ], 409);
             }
 

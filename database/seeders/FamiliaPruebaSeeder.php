@@ -31,7 +31,7 @@ class FamiliaPruebaSeeder extends Seeder
             return;
         }
 
-        $padre = Padre::firstOrCreate(['dui' => $cuenta->dui], ['nombre' => $cuenta->nombre, 'telefono' => '7000-0002', 'email' => $cuenta->email]);
+        $padre = Padre::firstOrCreate(['dui' => '00000002-6'], ['nombre' => 'Encargado de Prueba', 'telefono' => '7000-0002', 'email' => $cuenta->email]);
         if ($padre->user_id === null && ! Padre::where('user_id', $cuenta->id)->exists()) {
             $padre->update(['user_id' => $cuenta->id]);
         }

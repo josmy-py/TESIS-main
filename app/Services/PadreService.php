@@ -81,39 +81,6 @@ class PadreService
         });
     }
 
-    /**
-     * Verificación segura (D-E4): la cuenta cuyo DUI coincide con el de un padre
-     * que aún no tiene cuenta es esa misma persona; se le asigna el registro y,
-     * si se indica, se vincula con su estudiante.
-     */
-    public function reclamarPerfil(User $cuenta, array $data): ?Padre
-    {
-        $padre = Padre::whereIn('dui', $this->variantes($data['dui']))->first();
-
-        if (! $padre || $padre->user_id !== null || DuiFormato::normalizar($data['dui']) !== $cuenta->dui) {
-            return null;
-        }
-        if (Padre::where('user_id', $cuenta->id)->exists()) {
-            throw new \DomainException('El usuario autenticado ya está registrado como padre.');
-        }
-
-        return DB::transaction(function () use ($padre, $cuenta, $data) {
-            $padre->update([
-                'nombre' => $data['nombre'],
-                'telefono' => $data['telefono'] ?? $padre->telefono,
-                'email' => $data['email'] ?? $padre->email,
-                'user_id' => $cuenta->id,
-            ]);
-
-            if (! empty($data['estudiante_id']) && ! $padre->estudiantes()->whereKey($data['estudiante_id'])->exists()) {
-                $this->parientes->validarVinculo((int) $data['estudiante_id'], $padre->id, $data['parentesco']);
-                Pariente::create(['estudiante_id' => $data['estudiante_id'], 'padre_id' => $padre->id, 'parentesco' => $data['parentesco']]);
-            }
-
-            return $padre->fresh();
-        });
-    }
-
     /** D-E5: el encargado edita a su propio perfil o al padre vinculado solo con sus estudiantes. */
     public function actualizar($id, array $data, ?int $propietarioId = null): Padre
     {
@@ -124,9 +91,6 @@ class PadreService
         }
 
         $dui = DuiFormato::normalizar($data['dui']);
-        if ($padre->user_id !== null && $dui !== $padre->user?->dui) {
-            throw ValidationException::withMessages(['dui' => 'El DUI debe coincidir con el de la cuenta de esta persona.']);
-        }
         if (Padre::whereIn('dui', $this->variantes($dui))->whereKeyNot($padre->id)->exists()) {
             throw ValidationException::withMessages(['dui' => 'Este DUI ya pertenece a otra persona registrada.']);
         }

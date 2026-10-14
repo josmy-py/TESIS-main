@@ -28,7 +28,6 @@ class DiagnosticoFamiliasService
             'nie_no_valido' => DB::table('estudiantes')->whereNotNull('nie')->get(['id', 'nombre', 'nie'])
                 ->filter(fn ($e) => ! preg_match('/^[0-9]{1,10}$/', $e->nie))
                 ->map(fn ($f) => (array) $f)->values()->all(),
-            'dui_distinto_de_la_cuenta' => array_merge($this->duiDeCuenta('padres'), $this->duiDeCuenta('encargados')),
         ];
     }
 
@@ -45,15 +44,6 @@ class DiagnosticoFamiliasService
             ->groupBy(fn ($f) => str_replace('-', '', (string) $f->dui))
             ->filter(fn ($grupo) => $grupo->count() > 1)
             ->map(fn ($grupo, $dui) => ['tabla' => $tabla, 'dui' => DuiFormato::normalizar((string) $dui), 'ids' => $grupo->pluck('id')->implode(', ')])
-            ->values()->all();
-    }
-
-    private function duiDeCuenta(string $tabla): array
-    {
-        return DB::table($tabla)->join('users', 'users.id', '=', "{$tabla}.user_id")
-            ->get(["{$tabla}.id", "{$tabla}.dui", 'users.dui as dui_cuenta', 'users.email'])
-            ->filter(fn ($f) => DuiFormato::normalizar($f->dui) !== $f->dui_cuenta)
-            ->map(fn ($f) => ['tabla' => $tabla, 'id' => $f->id, 'dui' => $f->dui, 'dui_cuenta' => $f->dui_cuenta ?? '(sin DUI)', 'email' => $f->email])
             ->values()->all();
     }
 }

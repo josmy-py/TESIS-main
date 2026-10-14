@@ -10,9 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Periodos escolares (M2.2). Consultas para cuentas con sesión; edición y
- * transiciones de estado solo DIRECTOR. Reabrir exige motivo, que queda en el
- * registro de la aplicación (storage/logs).
+ * Periodos escolares (M2.2). Consultas para cuentas con sesión; edición solo DIRECTOR.
  */
 class PeriodoEscolarController extends Controller
 {
@@ -44,42 +42,6 @@ class PeriodoEscolarController extends Controller
         }, 'Error al actualizar el periodo');
     }
 
-    public function abrir(string $id)
-    {
-        return $this->responder(fn () => response()->json([
-            'message' => 'Periodo abierto',
-            'periodo' => $this->calendario->abrirPeriodo($id),
-        ]), 'Error al abrir el periodo');
-    }
-
-    public function cerrar(string $id)
-    {
-        return $this->responder(fn () => response()->json([
-            'message' => 'Periodo cerrado',
-            'periodo' => $this->calendario->cerrarPeriodo($id),
-        ]), 'Error al cerrar el periodo');
-    }
-
-    public function reabrir(Request $request, string $id)
-    {
-        return $this->responder(function () use ($request, $id) {
-            PeriodoEscolar::findOrFail($id);
-
-            $datos = $request->validate([
-                'motivo' => 'required|string|min:10|max:500',
-            ], [
-                'motivo.required' => 'El motivo de la reapertura es obligatorio.',
-                'motivo.min' => 'Describa el motivo con al menos 10 caracteres.',
-                'motivo.max' => 'El motivo no debe exceder los 500 caracteres.',
-            ]);
-
-            return response()->json([
-                'message' => 'Periodo reabierto',
-                'periodo' => $this->calendario->reabrirPeriodo($id, trim($datos['motivo'])),
-            ]);
-        }, 'Error al reabrir el periodo');
-    }
-
     public function destroy(string $id)
     {
         return $this->responder(function () use ($id) {
@@ -102,7 +64,7 @@ class PeriodoEscolarController extends Controller
         } catch (QueryException $e) {
             report($e);
 
-            // Índices únicos de año activo o periodo abierto (peticiones simultáneas)
+            // Índices únicos (peticiones simultáneas)
             if ((string) $e->getCode() === '23000' || (string) $e->getCode() === '23505') {
                 return response()->json(['message' => 'La operación entra en conflicto con el estado actual. Actualice e intente de nuevo.'], 409);
             }

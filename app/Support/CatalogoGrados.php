@@ -44,6 +44,17 @@ class CatalogoGrados
         return null;
     }
 
+    /** Nivel educativo del grado según su orden: Parvularia, Educación Básica o Bachillerato. */
+    public static function nivel(?int $orden): ?string
+    {
+        return match (true) {
+            $orden === null => null,
+            $orden <= 0 => 'Parvularia',
+            $orden <= 9 => 'Educación Básica',
+            default => 'Bachillerato',
+        };
+    }
+
     public static function orden(?string $nombre): ?int
     {
         $oficial = self::oficial($nombre);

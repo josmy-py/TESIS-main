@@ -24,11 +24,15 @@ class AlineacionSinPerdidaTest extends TestCase
 {
     use DatabaseMigrations, DatosM1;
 
-    private const ALINEACION = 5; // migraciones 000007, 000008, 000009 (índice único de M4), 000010 y 000011 (M6.1)
+    /** Primera migración de la alineación; las siguientes (M4, M6.1 y "solo el diagrama") también se revierten. */
+    private const PRIMERA = '2026_10_12_000007_alinear_con_diagrama_quitar_agregados';
 
     private const INFRAESTRUCTURA = [
         'cache', 'cache_locks', 'failed_jobs', 'job_batches', 'jobs', 'migrations', 'password_reset_tokens', 'sessions',
     ];
+
+    /** Tablas que cambian de forma por completo; se comprueban aparte. */
+    private const REEMPLAZADAS = ['roles'];
 
     private array $ids = [];
 
@@ -44,6 +48,11 @@ class AlineacionSinPerdidaTest extends TestCase
         parent::tearDown();
     }
 
+    private function pasosAlineacion(): int
+    {
+        return DB::table('migrations')->where('migration', '>=', self::PRIMERA)->count();
+    }
+
     private function limpiarRespaldos(): void
     {
         File::deleteDirectory(RespaldoAlineacion::directorio());
@@ -51,7 +60,7 @@ class AlineacionSinPerdidaTest extends TestCase
 
     public function test_alinear_y_revertir_no_pierde_datos_ni_funciones(): void
     {
-        Artisan::call('migrate:rollback', ['--step' => self::ALINEACION]);
+        Artisan::call('migrate:rollback', ['--step' => $this->pasosAlineacion()]);
         $this->assertTrue(Schema::hasColumn('grados', 'orden'), 'La base de prueba debe quedar como en M3');
 
         $this->cargarDatosM0aM3();
@@ -63,14 +72,15 @@ class AlineacionSinPerdidaTest extends TestCase
         // Lo que el diagrama conserva no cambia (salvo los dos cambios de valores previstos)
         $despues = $this->volcado();
         foreach ($despues as $tabla => $filas) {
-            if ($tabla === 'notifications') {
-                // D-M6 (M6.1): tabla estándar de avisos autorizada; nace vacía
-                $this->assertSame([], $filas);
+            if (in_array($tabla, self::REEMPLAZADAS, true)) {
                 continue;
             }
             $this->assertArrayHasKey($tabla, $antes, "Tabla nueva: {$tabla}");
             foreach ($filas as $i => $fila) {
                 foreach ($fila as $columna => $valor) {
+                    if ($tabla === 'users' && $columna === 'rol_id') {
+                        continue; // se comprueba abajo
+                    }
                     $anterior = $antes[$tabla][$i][$columna];
                     if ($tabla === 'anios_lectivos' && $columna === 'estado') {
                         $anterior = ['planificado' => 'inactivo', 'cerrado' => 'cierre'][$anterior] ?? $anterior;
@@ -89,6 +99,19 @@ class AlineacionSinPerdidaTest extends TestCase
         }
         $this->assertFalse(Schema::hasTable('auditoria_calendario'));
 
+        // Roles como el diagrama: roles(nombre) y cada cuenta conserva el suyo en users.rol_id
+        $this->assertSame(['DIRECTOR', 'DOCENTE', 'ENCARGADO'], DB::table('roles')->orderBy('id')->pluck('nombre')->all());
+        foreach (['director' => 'DIRECTOR', 'encargado' => 'ENCARGADO', 'otro' => 'ENCARGADO', 'docente' => 'DOCENTE'] as $clave => $rol) {
+            $this->assertSame($rol, User::find($this->ids[$clave])->rol(), "Rol de {$clave}");
+        }
+        foreach (['model_has_roles', 'permissions', 'notifications', 'password_reset_tokens'] as $tabla) {
+            $this->assertFalse(Schema::hasTable($tabla), "{$tabla} no está en el diagrama");
+        }
+        $this->assertFalse(Schema::hasColumn('users', 'dui'));
+        $this->assertFalse(Schema::hasColumn('plan_estudios', 'grado_id'));
+        $this->assertFalse(Schema::hasColumn('profesores', 'especialidad'));
+        $this->assertFalse(Schema::hasColumn('periodo_escolares', 'estado'));
+
         // Lo que se quita queda respaldado
         $b = RespaldoAlineacion::leer('quitar-agregados');
         $this->assertSame([1, 2, null], array_column($b['grados'], 'orden'));
@@ -99,12 +122,17 @@ class AlineacionSinPerdidaTest extends TestCase
         $c = RespaldoAlineacion::leer('tipos-y-anio');
         $this->assertSame(['2026', '2026'], array_map('strval', array_column($c['matriculas'], 'anio')));
         $this->assertSame('2026-11-30', $c['notas_anuales'][0]['fecha_cierre']);
+        $u = RespaldoAlineacion::leer('usuarios-roles');
+        $this->assertSame('Director de Prueba', collect($u['users'])->firstWhere('id', $this->ids['director'])['nombre']);
+        $this->assertSame($this->ids['grado1'], RespaldoAlineacion::leer('plan-estudios')['plan_estudios'][0]['grado_id']);
+        $this->assertSame('Matemática', RespaldoAlineacion::leer('profesores')['profesores'][0]['especialidad']);
+        $this->assertSame(['cerrado', 'abierto', 'pendiente', 'cerrado'], array_column(RespaldoAlineacion::leer('periodos')['periodo_escolares'], 'estado'));
 
         // 2. Las funciones de M1, M2 y M3 siguen respondiendo con los datos migrados
         $this->comprobarFunciones();
 
         // 3. Revertir devuelve exactamente la base anterior
-        $this->assertSame(0, Artisan::call('migrate:rollback', ['--step' => self::ALINEACION]));
+        $this->assertSame(0, Artisan::call('migrate:rollback', ['--step' => $this->pasosAlineacion()]));
         $this->assertSame($this->normalTodo($antes), $this->normalTodo($this->volcado()));
 
         // 4. Volver a alinear funciona
@@ -114,7 +142,7 @@ class AlineacionSinPerdidaTest extends TestCase
 
     public function test_se_detiene_si_un_grado_no_encaja_en_el_catalogo(): void
     {
-        Artisan::call('migrate:rollback', ['--step' => self::ALINEACION]);
+        Artisan::call('migrate:rollback', ['--step' => $this->pasosAlineacion()]);
         $orden = DB::table('grados')->insertGetId(['nombre' => 'Parvularia 4', 'orden' => 1]);
         $sinEquivalente = DB::table('grados')->insertGetId(['nombre' => 'Kinder', 'orden' => null]);
         $a = DB::table('grados')->insertGetId(['nombre' => 'Primer grado', 'orden' => null]);
@@ -134,7 +162,7 @@ class AlineacionSinPerdidaTest extends TestCase
 
     public function test_se_detiene_si_una_nota_se_redondearia(): void
     {
-        Artisan::call('migrate:rollback', ['--step' => self::ALINEACION]);
+        Artisan::call('migrate:rollback', ['--step' => $this->pasosAlineacion()]);
         $this->cargarDatosM0aM3();
         DB::table('calificaciones')->update(['nota_obtenida' => 8.125]);
 
@@ -150,12 +178,11 @@ class AlineacionSinPerdidaTest extends TestCase
     /** Datos como los que dejan M0 a M3 (con las columnas que se van a quitar). */
     private function cargarDatosM0aM3(): void
     {
-        $this->sembrarRoles();
         $cat = $this->catalogosBasicos();
-        $director = $this->usuario(User::ROL_DIRECTOR, ['email' => 'director@prueba.test']);
-        $encargado = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000001-8', 'email' => 'encargado@prueba.test']);
-        $otroEncargado = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000003-4', 'email' => 'otro@prueba.test']);
-        $docente = $this->usuario(User::ROL_DOCENTE, ['dui' => '00000002-6', 'email' => 'docente@prueba.test']);
+        $director = $this->usuarioAnterior(User::ROL_DIRECTOR, 'director@prueba.test', 'Director de Prueba', '00000009-2');
+        $encargado = $this->usuarioAnterior(User::ROL_ENCARGADO, 'encargado@prueba.test', 'Encargado de Prueba', '00000001-8');
+        $otroEncargado = $this->usuarioAnterior(User::ROL_ENCARGADO, 'otro@prueba.test', 'Otro Encargado', null);
+        $docente = $this->usuarioAnterior(User::ROL_DOCENTE, 'docente@prueba.test', 'Docente de Prueba', '00000002-6');
         $this->ids += ['director' => $director->id, 'encargado' => $encargado->id, 'otro' => $otroEncargado->id, 'docente' => $docente->id];
 
         $g1 = DB::table('grados')->insertGetId(['nombre' => 'Primer grado', 'orden' => 1]);
@@ -189,7 +216,7 @@ class AlineacionSinPerdidaTest extends TestCase
         ]);
         $this->ids['profesor'] = $profesor;
 
-        $plan = DB::table('plan_estudios')->insertGetId([
+        $plan = $this->ids['plan'] = DB::table('plan_estudios')->insertGetId([
             'nombre' => 'Plan Primer grado', 'estado' => true, 'fecha_inicio' => '2026-01-01', 'fecha_fin' => '2030-12-31',
             'descripcion' => 'Pensum vigente', 'fecha_aprobacion' => '2025-12-01', 'especialidad_id' => null, 'grado_id' => $g1,
         ]);
@@ -225,6 +252,20 @@ class AlineacionSinPerdidaTest extends TestCase
         DB::table('notas_anuales')->insert(['promedio_anual' => 8.5, 'estado' => 'Aprobada', 'matricula_id' => $matricula, 'fecha_cierre' => '2026-11-30']);
     }
 
+    /** Cuenta con el esquema anterior: nombre, DUI y estado en users, y el rol en las tablas del paquete de roles. */
+    private function usuarioAnterior(string $rol, string $email, string $nombre, ?string $dui): User
+    {
+        $roleId = DB::table('roles')->where('name', $rol)->value('id')
+            ?? DB::table('roles')->insertGetId(['name' => $rol, 'guard_name' => 'api', 'created_at' => '2026-01-01 08:00:00', 'updated_at' => '2026-01-01 08:00:00']);
+        $id = DB::table('users')->insertGetId([
+            'nombre' => $nombre, 'dui' => $dui, 'email' => $email, 'password' => \Illuminate\Support\Facades\Hash::make('password'),
+            'estado' => 'activo', 'created_at' => '2026-01-01 08:00:00', 'updated_at' => '2026-01-01 08:00:00',
+        ]);
+        DB::table('model_has_roles')->insert(['role_id' => $roleId, 'model_type' => 'App\\Models\\User', 'model_id' => $id]);
+
+        return User::find($id);
+    }
+
     private function comprobarFunciones(): void
     {
         $director = User::find($this->ids['director']);
@@ -243,16 +284,16 @@ class AlineacionSinPerdidaTest extends TestCase
         $this->assertSame([-2, 1, 2], $grados->pluck('orden')->all());
         $this->assertSame(['Parvularia 4 años', 'Primer grado', 'Segundo grado'], $grados->pluck('nombre')->all());
 
-        // M2.2: año activo y periodo abierto se conservan
+        // M2.2: el año activo y sus periodos se conservan
         $actual = $this->como($encargado)->getJson('/api/anios-lectivos/actual')->assertOk();
-        $actual->assertJsonPath('anio_lectivo.id', $this->ids['anio2026'])->assertJsonPath('periodo_abierto.nivel', 2);
+        $actual->assertJsonPath('anio_lectivo.id', $this->ids['anio2026'])->assertJsonCount(3, 'anio_lectivo.periodos');
         $this->como($director)->postJson("/api/anios-lectivos/{$this->ids['anio2026']}/activar")->assertStatus(409);
 
-        // M2.3: pensum del grado
-        $this->como($docente)->getJson("/api/asignaturas?grado_id={$this->ids['grado1']}")->assertOk()->assertJsonFragment(['nombre' => 'Matemática']);
+        // M2.3: asignaturas del plan
+        $this->como($docente)->getJson("/api/asignaturas?plan_estudio_id={$this->ids['plan']}")->assertOk()->assertJsonFragment(['nombre' => 'Matemática']);
 
         // M3: docentes
-        $this->como($director)->getJson('/api/profesores?buscar=PROF-001')->assertOk()->assertJsonFragment(['codigo' => 'PROF-001', 'especialidad' => 'Matemática']);
+        $this->como($director)->getJson('/api/profesores?buscar=PROF-001')->assertOk()->assertJsonFragment(['codigo' => 'PROF-001']);
 
         // Familia: el padre vinculado a su estudiante sigue visible para su encargado y no para otro.
         // Cambio previsto: sin registrado_por, un padre que el encargado registró pero nunca

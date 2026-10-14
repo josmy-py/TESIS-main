@@ -238,14 +238,6 @@ class AsignacionService
             ->havingRaw('COUNT(*) > 1')
             ->get()->map(fn ($f) => (array) $f)->all();
 
-        $fueraDePensum = DB::table('asignaciones as a')
-            ->join('secciones as s', 's.id', '=', 'a.seccion_id')
-            ->join('asignaturas as m', 'm.id', '=', 'a.asignatura_id')
-            ->leftJoin('plan_estudios as p', 'p.id', '=', 'm.plan_estudio_id')
-            ->where(fn ($q) => $q->whereNull('p.grado_id')->orWhereColumn('p.grado_id', '<>', 's.grado_id'))
-            ->select('a.id', 'a.seccion_id', 'a.asignatura_id', 's.grado_id as grado_seccion', 'p.grado_id as grado_plan')
-            ->get()->map(fn ($f) => (array) $f)->all();
-
         $variosPlanes = DB::table('asignaciones as a')
             ->join('asignaturas as m', 'm.id', '=', 'a.asignatura_id')
             ->select('a.seccion_id', DB::raw('COUNT(DISTINCT m.plan_estudio_id) as planes'))
@@ -255,7 +247,6 @@ class AsignacionService
 
         return [
             'duplicadas' => $duplicadas,
-            'fuera_de_pensum' => $fueraDePensum,
             'secciones_con_varios_planes' => $variosPlanes,
         ];
     }
@@ -268,12 +259,9 @@ class AsignacionService
         $etiqueta = $this->etiquetaSeccion($seccion);
         $plan = $asignatura->planEstudio;
 
-        // Pensum: la materia debe ser de un plan vigente del grado de la sección
-        if (! $plan || (int) $plan->grado_id !== (int) $seccion->grado_id) {
-            throw ValidationException::withMessages(['asignatura_id' => "La materia {$asignatura->nombre} no pertenece al pensum de {$seccion->grado?->nombre}."]);
-        }
-        if (! $plan->estado) {
-            throw ValidationException::withMessages(['asignatura_id' => "La materia {$asignatura->nombre} es del plan {$plan->nombre}, que no está vigente."]);
+        // La materia debe ser de un plan de estudio vigente
+        if (! $plan || ! $plan->estado) {
+            throw ValidationException::withMessages(['asignatura_id' => "La materia {$asignatura->nombre} es del plan {$plan?->nombre}, que no está vigente."]);
         }
 
         // D-A1: un único plan por sección (sin mezclar especialidades)
@@ -303,8 +291,8 @@ class AsignacionService
         $profesor = Profesor::with('user')->find($profesorId);
         $user = $profesor?->user;
 
-        if (! $user || ! $user->estaActivo() || ! $user->hasRole(User::ROL_DOCENTE)) {
-            throw ValidationException::withMessages(['profesor_id' => 'El docente debe tener una cuenta DOCENTE activa.']);
+        if (! $user || ! $user->hasRole(User::ROL_DOCENTE)) {
+            throw ValidationException::withMessages(['profesor_id' => 'El docente debe tener una cuenta DOCENTE.']);
         }
 
         return $profesor;
@@ -364,7 +352,7 @@ class AsignacionService
         return Asignacion::with([
             'profesor:id,nombre,codigo,user_id',
             'asignatura:id,nombre,plan_estudio_id',
-            'asignatura.planEstudio:id,nombre,grado_id,especialidad_id,estado',
+            'asignatura.planEstudio:id,nombre,especialidad_id,estado',
             'asignatura.planEstudio.especialidad:id,nombre',
             'seccion:id,nombre,turno,capacidad,grado_id,anio_lectivo_id,profesor_id',
             'seccion.grado:id,nombre',

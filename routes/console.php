@@ -7,23 +7,6 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-// M1: cuentas históricas que quedaron sin nombre o DUI tras la migración de users.
-// Deben completarse antes de volver obligatorias esas columnas en la base de datos.
-Artisan::command('siga:usuarios-sin-dui', function () {
-    $usuarios = \App\Models\User::whereNull('dui')->orWhereNull('nombre')->orderBy('id')->get();
-
-    if ($usuarios->isEmpty()) {
-        $this->info('Todas las cuentas tienen nombre y DUI.');
-        return;
-    }
-
-    $this->table(
-        ['id', 'email', 'nombre', 'dui', 'estado', 'rol'],
-        $usuarios->map(fn ($u) => [$u->id, $u->email, $u->nombre ?? '(falta)', $u->dui ?? '(falta)', $u->estado, $u->rol() ?? '(sin rol)'])
-    );
-    $this->warn($usuarios->count().' cuenta(s) requieren intervención manual.');
-})->purpose('Lista las cuentas sin nombre o DUI que requieren intervención');
-
 // Grados fuera del catálogo oficial (App\Support\CatalogoGrados). Sin orden no se
 // puede calcular la promoción de reingreso; se corrige con el nombre oficial.
 Artisan::command('siga:grados-sin-orden', function () {
@@ -78,7 +61,6 @@ Artisan::command('siga:diagnostico-calendario', function () {
 Artisan::command('siga:diagnostico-asignaciones', function () {
     $secciones = [
         'duplicadas' => ['Misma materia repetida en una sección (impide el índice único)', ['seccion_id', 'asignatura_id', 'total', 'primera_id']],
-        'fuera_de_pensum' => ['Materias que no son del pensum del grado de la sección', ['id', 'seccion_id', 'asignatura_id', 'grado_seccion', 'grado_plan']],
         'secciones_con_varios_planes' => ['Secciones con materias de más de un plan', ['seccion_id', 'planes']],
     ];
 
@@ -110,7 +92,6 @@ Artisan::command('siga:diagnostico-familias', function () {
         'vinculos_repetidos' => ['Mismo padre vinculado dos veces al estudiante', ['estudiante_id', 'padre_id', 'total']],
         'parentesco_repetido' => ['Estudiantes con más de un Padre o más de una Madre', ['estudiante_id', 'parentesco', 'total']],
         'nie_no_valido' => ['NIE con formato no válido (solo números, hasta 10)', ['id', 'nombre', 'nie']],
-        'dui_distinto_de_la_cuenta' => ['Perfiles cuyo DUI no coincide con el de su cuenta', ['tabla', 'id', 'dui', 'dui_cuenta', 'email']],
     ];
 
     $servicio = app(\App\Services\DiagnosticoFamiliasService::class);

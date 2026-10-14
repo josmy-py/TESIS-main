@@ -8,14 +8,12 @@ use App\Models\Padre;
 use App\Models\PeriodoEscolar;
 use App\Models\Seccion;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 /**
  * Años lectivos y periodos escolares (M2.2), con las columnas del diagrama ER:
  * anios_lectivos(nombre, fecha_inicio, fecha_fin, estado activo/inactivo/cierre)
- * y periodo_escolares(nombre, nivel = número del periodo, anio_lectivo_id), más
- * el estado del periodo (pendiente, abierto, cerrado) que exige el documento.
+ * y periodo_escolares(nombre, nivel = número del periodo, anio_lectivo_id).
  *
  * Toda regla de estado se valida aquí. Una operación que no es posible en el
  * estado actual lanza \DomainException (el controlador responde 409).
@@ -45,15 +43,9 @@ class CalendarioService
         return AnioLectivo::findOrFail($anioId)->periodos()->get();
     }
 
-    /** @return array{0: ?AnioLectivo, 1: ?PeriodoEscolar} */
-    public function actual(): array
+    public function actual(): ?AnioLectivo
     {
-        $anio = AnioLectivo::activo();
-        $periodo = $anio
-            ? PeriodoEscolar::where('anio_lectivo_id', $anio->id)->where('estado', PeriodoEscolar::ABIERTO)->first()
-            : null;
-
-        return [$anio, $periodo];
+        return AnioLectivo::activo()?->load('periodos');
     }
 
     // --- Años lectivos ---
@@ -133,13 +125,6 @@ class CalendarioService
             if ($anio->estado !== AnioLectivo::ACTIVO) {
                 throw new \DomainException('Solo puede cerrarse el año lectivo activo.');
             }
-            // Todos los periodos deben estar cerrados: uno pendiente o abierto
-            // quedaría imposible de completar con el año ya cerrado
-            $sinCerrar = $anio->periodos()->where('estado', '!=', PeriodoEscolar::CERRADO)->orderBy('nivel')->pluck('nombre');
-            if ($sinCerrar->isNotEmpty()) {
-                throw new \DomainException('Cierre todos los periodos antes de cerrar el año lectivo. Periodos sin cerrar: '.$sinCerrar->implode(', ').'.');
-            }
-
             $this->cambiarEstado($anio, AnioLectivo::CIERRE);
 
             return $anio->load('periodos');
@@ -194,9 +179,6 @@ class CalendarioService
             $periodo = PeriodoEscolar::lockForUpdate()->findOrFail($id);
             $anio = $this->anioDelPeriodo($periodo);
 
-            if ($periodo->estado !== PeriodoEscolar::PENDIENTE) {
-                throw new \DomainException('Solo pueden editarse periodos pendientes.');
-            }
             if ($anio->estado === AnioLectivo::CIERRE) {
                 throw new \DomainException('El año lectivo está cerrado y no puede modificarse.');
             }
@@ -208,75 +190,12 @@ class CalendarioService
         });
     }
 
-    public function abrirPeriodo($id): PeriodoEscolar
-    {
-        return DB::transaction(function () use ($id) {
-            $periodo = PeriodoEscolar::lockForUpdate()->findOrFail($id);
-            $anio = $this->anioDelPeriodo($periodo);
-
-            if ($periodo->estado === PeriodoEscolar::ABIERTO) {
-                throw new \DomainException('El periodo ya está abierto.');
-            }
-            if ($periodo->estado === PeriodoEscolar::CERRADO) {
-                throw new \DomainException('El periodo está cerrado. Para volver a abrirlo use "reabrir" e indique el motivo.');
-            }
-
-            $this->validarApertura($periodo, $anio);
-            $this->cambiarEstado($periodo, PeriodoEscolar::ABIERTO);
-
-            return $periodo;
-        });
-    }
-
-    public function cerrarPeriodo($id): PeriodoEscolar
-    {
-        return DB::transaction(function () use ($id) {
-            $periodo = PeriodoEscolar::lockForUpdate()->findOrFail($id);
-
-            if ($periodo->estado !== PeriodoEscolar::ABIERTO) {
-                throw new \DomainException('Solo puede cerrarse un periodo abierto.');
-            }
-
-            $this->cambiarEstado($periodo, PeriodoEscolar::CERRADO);
-
-            return $periodo;
-        });
-    }
-
-    public function reabrirPeriodo($id, string $motivo): PeriodoEscolar
-    {
-        return DB::transaction(function () use ($id, $motivo) {
-            $periodo = PeriodoEscolar::lockForUpdate()->findOrFail($id);
-            $anio = $this->anioDelPeriodo($periodo);
-
-            if ($periodo->estado !== PeriodoEscolar::CERRADO) {
-                throw new \DomainException('Solo puede reabrirse un periodo cerrado.');
-            }
-
-            $this->validarApertura($periodo, $anio);
-            $this->cambiarEstado($periodo, PeriodoEscolar::ABIERTO);
-
-            // Sin tabla de auditoría en el diagrama: el motivo queda en el registro de la aplicación
-            Log::info('Periodo reabierto', [
-                'periodo_id' => $periodo->id,
-                'periodo' => $periodo->nombre,
-                'motivo' => $motivo,
-                'user_id' => auth('api')->id(),
-            ]);
-
-            return $periodo;
-        });
-    }
-
     public function eliminarPeriodo($id): void
     {
         DB::transaction(function () use ($id) {
             $periodo = PeriodoEscolar::lockForUpdate()->findOrFail($id);
             $anio = $this->anioDelPeriodo($periodo);
 
-            if ($periodo->estado !== PeriodoEscolar::PENDIENTE) {
-                throw new \DomainException('Solo pueden eliminarse periodos pendientes.');
-            }
             if ($anio->estado === AnioLectivo::CIERRE) {
                 throw new \DomainException('El año lectivo está cerrado y no puede modificarse.');
             }
@@ -295,12 +214,12 @@ class CalendarioService
      * Regla para M7 (notas) y M8 (conducta): lanzar antes de crear o
      * modificar registros de un periodo.
      */
-    public function asegurarPeriodoAbierto($periodoId): PeriodoEscolar
+    public function asegurarPeriodoEditable($periodoId): PeriodoEscolar
     {
         $periodo = PeriodoEscolar::with('anioLectivo')->findOrFail($periodoId);
 
         if (! $periodo->permiteRegistros()) {
-            throw new \DomainException('El periodo no está abierto: no se pueden registrar ni modificar notas o conducta.');
+            throw new \DomainException('El año lectivo del periodo no está activo: no se pueden registrar ni modificar notas o conducta.');
         }
 
         return $periodo;
@@ -388,14 +307,11 @@ class CalendarioService
 
     private function nuevoPeriodo(AnioLectivo $anio, int $numero, ?string $nombre = null): PeriodoEscolar
     {
-        $periodo = new PeriodoEscolar([
+        return PeriodoEscolar::create([
             'nombre' => $nombre ?: self::nombrePredeterminado($numero),
             'anio_lectivo_id' => $anio->id,
             'nivel' => $numero,
         ]);
-        $periodo->forceFill(['estado' => PeriodoEscolar::PENDIENTE])->save();
-
-        return $periodo;
     }
 
     private function anioDelPeriodo(PeriodoEscolar $periodo): AnioLectivo
@@ -405,23 +321,6 @@ class CalendarioService
         }
 
         return AnioLectivo::lockForUpdate()->findOrFail($periodo->anio_lectivo_id);
-    }
-
-    private function validarApertura(PeriodoEscolar $periodo, AnioLectivo $anio): void
-    {
-        if ($anio->estado !== AnioLectivo::ACTIVO) {
-            throw new \DomainException('El periodo solo puede abrirse cuando su año lectivo está activo.');
-        }
-
-        // Un solo periodo abierto por año: lo valida el sistema
-        $otro = PeriodoEscolar::where('anio_lectivo_id', $anio->id)
-            ->where('estado', PeriodoEscolar::ABIERTO)
-            ->where('id', '<>', $periodo->id)
-            ->lockForUpdate()
-            ->first();
-        if ($otro) {
-            throw new \DomainException("Ya hay un periodo abierto en este año ({$otro->nombre}). Ciérrelo primero.");
-        }
     }
 
     private function cambiarEstado($modelo, string $estado): void

@@ -20,17 +20,13 @@ class AsignaturaController extends Controller
 
     /**
      * Display a listing of the resource.
-     * Filtros opcionales: plan_estudio_id, o grado_id (pensum vigente del grado).
+     * Filtro opcional: plan_estudio_id.
      */
     public function index(Request $request)
     {
         try {
-            $asignatura = Asignatura::with('planEstudio:id,nombre,grado_id,especialidad_id,estado')
+            $asignatura = Asignatura::with('planEstudio:id,nombre,especialidad_id,estado')
                 ->when($request->query('plan_estudio_id'), fn ($q, $planId) => $q->where('plan_estudio_id', $planId))
-                ->when($request->query('grado_id'), fn ($q, $gradoId) => $q->whereHas(
-                    'planEstudio',
-                    fn ($plan) => $plan->where('grado_id', $gradoId)->where('estado', true)
-                ))
                 ->orderBy('nombre')
                 ->get();
             return response()->json(['asignaturas' => $asignatura], 200);

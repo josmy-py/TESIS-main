@@ -3,20 +3,13 @@
 namespace App\Services;
 
 use App\Models\User;
-use App\Notifications\ActivarCuenta;
-use App\Notifications\RestablecerContrasena;
-use App\Support\DuiFormato;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Password;
-use Illuminate\Support\Facades\URL;
-use Illuminate\Support\Str;
 
 /**
- * Cuentas de acceso (tabla users + rol Spatie).
- * Solo maneja la identidad de acceso; los perfiles (profesores, padres,
- * encargados) se crean en sus propios servicios. M3 debe usar crearCuenta()
- * para la cuenta del docente y luego crear su perfil.
+ * Cuentas de acceso (tabla users: email, password, rol_id).
+ * Solo maneja la cuenta; los perfiles (profesores, padres, encargados) se
+ * crean en sus propios servicios.
  */
 class UsuarioService
 {
@@ -24,184 +17,49 @@ class UsuarioService
     // Creación de cuentas
     // ---------------------------------------------------------------
 
-    /**
-     * Registro público del encargado: rol fijo ENCARGADO, estado pendiente
-     * hasta que use el enlace de activación.
-     */
+    /** Registrarse (diagrama): cuenta pública con rol fijo ENCARGADO. */
     public function registrarEncargado(array $datos): User
     {
-        $user = DB::transaction(function () use ($datos) {
-            $user = new User([
-                'nombre' => $datos['nombre'],
-                'dui' => DuiFormato::normalizar($datos['dui']),
-                'email' => $datos['email'],
-                'password' => Hash::make($datos['password']),
-            ]);
-            $user->estado = User::ESTADO_PENDIENTE;
-            $user->save();
-
-            $user->syncRoles([User::ROL_ENCARGADO]);
-
-            return $user;
-        });
-
-        $this->enviarActivacion($user);
-
-        return $user;
+        return $this->crearCuenta($datos, User::ROL_ENCARGADO);
     }
 
-    /**
-     * Cuenta creada por el director (cualquier rol permitido). Nace pendiente
-     * con una contraseña aleatoria que nadie conoce; la persona define la suya
-     * con el enlace que recibe por correo, y al hacerlo la cuenta se activa.
-     */
+    /** Cuenta con correo, contraseña y un único rol. */
     public function crearCuenta(array $datos, string $rol): User
     {
         if (! in_array($rol, User::ROLES, true)) {
             throw new \InvalidArgumentException('Rol no permitido.');
         }
 
-        $user = DB::transaction(function () use ($datos, $rol) {
-            $user = new User([
-                'nombre' => $datos['nombre'],
-                'dui' => DuiFormato::normalizar($datos['dui']),
-                'email' => $datos['email'],
-                'password' => Hash::make(Str::password(40)),
-            ]);
-            $user->estado = User::ESTADO_PENDIENTE;
-            $user->save();
-
-            $user->syncRoles([$rol]);
-
-            return $user;
-        });
-
-        // Si la cuenta se crea dentro de otra transacción (perfil del docente
-        // en M3), el correo sale solo cuando todo quedó guardado.
-        DB::afterCommit(fn () => $this->enviarEnlaceContrasena($user, true));
-
-        return $user;
-    }
-
-    // ---------------------------------------------------------------
-    // Activación y contraseñas
-    // ---------------------------------------------------------------
-
-    public function minutosActivacion(): int
-    {
-        return (int) config('auth.verification.expire', 60);
-    }
-
-    /**
-     * URL firmada y temporal del backend que activa la cuenta. El correo
-     * lleva al frontend, que llama a esta URL.
-     */
-    public function urlActivacion(User $user): string
-    {
-        return URL::temporarySignedRoute(
-            'auth.activar',
-            now()->addMinutes($this->minutosActivacion()),
-            ['id' => $user->id, 'hash' => sha1($user->email)]
-        );
-    }
-
-    public function enviarActivacion(User $user): void
-    {
-        $enlace = rtrim(config('app.frontend_url'), '/').'/activar?enlace='.urlencode($this->urlActivacion($user));
-
-        $user->notify(new ActivarCuenta($enlace, $this->minutosActivacion()));
-    }
-
-    public function enviarEnlaceContrasena(User $user, bool $inicial = false): void
-    {
-        $token = Password::broker()->createToken($user);
-
-        $user->notify(new RestablecerContrasena(
-            $this->urlContrasena($user, $token, $inicial),
-            (int) config('auth.passwords.users.expire', 60),
-            $inicial
-        ));
-    }
-
-    public function urlContrasena(User $user, string $token, bool $inicial = false): string
-    {
-        $query = http_build_query(array_filter([
-            'token' => $token,
-            'email' => $user->email,
-            'inicial' => $inicial ? 1 : null,
-        ]));
-
-        return rtrim(config('app.frontend_url'), '/').'/restablecer-contrasena?'.$query;
-    }
-
-    /**
-     * Devuelve 'activada', 'ya_activa' o 'inactiva'.
-     */
-    public function activar(User $user): string
-    {
-        if ($user->estado === User::ESTADO_INACTIVO) {
-            return 'inactiva';
-        }
-
-        if ($user->estado === User::ESTADO_ACTIVO) {
-            return 'ya_activa';
-        }
-
-        $user->estado = User::ESTADO_ACTIVO;
-        $user->email_verified_at = now();
+        $user = new User([
+            'email' => $datos['email'],
+            'password' => Hash::make($datos['password']),
+        ]);
+        $user->asignarRol($rol);
         $user->save();
 
-        return 'activada';
-    }
-
-    /**
-     * Tras restablecer la contraseña con el enlace del correo: la persona
-     * demostró que controla el correo, así que una cuenta pendiente se activa.
-     * Una cuenta desactivada por el director sigue inactiva.
-     */
-    public function despuesDeRestablecer(User $user): void
-    {
-        if ($user->estado === User::ESTADO_PENDIENTE) {
-            $user->estado = User::ESTADO_ACTIVO;
-            $user->email_verified_at = $user->email_verified_at ?? now();
-            $user->save();
-        }
+        return $user;
     }
 
     // ---------------------------------------------------------------
     // Gestión por el director
     // ---------------------------------------------------------------
 
-    public function listar(?string $buscar = null, ?string $rol = null, ?string $estado = null)
+    public function listar(?string $buscar = null, ?string $rol = null)
     {
-        $query = User::with('roles')->orderBy('id', 'desc');
+        $query = User::with('rolAsignado')->orderBy('id', 'desc');
 
         if ($buscar) {
-            $termino = '%'.$buscar.'%';
-            $duiNormalizado = DuiFormato::normalizar($buscar);
-
-            $query->where(function ($q) use ($termino, $duiNormalizado) {
-                $q->where('nombre', 'like', $termino)
-                    ->orWhere('email', 'like', $termino)
-                    ->orWhere('dui', 'like', $termino)
-                    ->orWhere('dui', $duiNormalizado);
-            });
+            $query->where('email', 'like', '%'.$buscar.'%');
         }
 
         if ($rol) {
-            $query->role($rol);
-        }
-
-        if ($estado) {
-            $query->where('estado', $estado);
+            $query->conRol($rol);
         }
 
         return $query->get()->map(fn (User $u) => $u->datosSesion());
     }
 
-    /**
-     * Nombre, correo y rol. El DUI no se modifica desde la gestión.
-     */
+    /** Correo y rol (asignarRol). */
     public function actualizar(User $user, array $datos): User
     {
         if (isset($datos['rol']) && $datos['rol'] !== $user->rol()) {
@@ -209,45 +67,16 @@ class UsuarioService
         }
 
         DB::transaction(function () use ($user, $datos) {
-            $user->nombre = $datos['nombre'];
+            $user->email = $datos['email'];
 
-            // Solo se completa un DUI que falta; nunca se reemplaza uno existente
-            if ($user->dui === null && ! empty($datos['dui'])) {
-                $user->dui = $datos['dui'];
-            }
-
-            if ($datos['email'] !== $user->email) {
-                $user->email = $datos['email'];
+            if (isset($datos['rol'])) {
+                $user->asignarRol($datos['rol']);
             }
 
             $user->save();
-
-            if (isset($datos['rol'])) {
-                $user->syncRoles([$datos['rol']]);
-            }
         });
 
         return $user->refresh();
-    }
-
-    public function cambiarEstado(User $user, string $estado, User $actor): User
-    {
-        if ($user->id === $actor->id) {
-            throw new \DomainException('No puede cambiar el estado de su propia cuenta.');
-        }
-
-        if ($estado === User::ESTADO_INACTIVO && $this->esUltimoDirectorActivo($user)) {
-            throw new \DomainException('No se puede desactivar al último director activo.');
-        }
-
-        if ($estado === User::ESTADO_ACTIVO && $user->email_verified_at === null) {
-            throw new \DomainException('La cuenta aún no ha confirmado su correo. Reenvíe el enlace para que defina su contraseña.');
-        }
-
-        $user->estado = $estado;
-        $user->save();
-
-        return $user;
     }
 
     public function eliminar(User $user, User $actor): void
@@ -256,18 +85,15 @@ class UsuarioService
             throw new \DomainException('No puede eliminar su propia cuenta.');
         }
 
-        if ($this->esUltimoDirectorActivo($user)) {
-            throw new \DomainException('No se puede eliminar al último director activo.');
+        if ($this->esUltimoDirector($user)) {
+            throw new \DomainException('No se puede eliminar al último director.');
         }
 
         if ($this->tieneRegistrosAsociados($user)) {
-            throw new \DomainException('La cuenta tiene información asociada y no puede eliminarse. Desactívela en su lugar.');
+            throw new \DomainException('La cuenta tiene información asociada y no puede eliminarse.');
         }
 
-        DB::transaction(function () use ($user) {
-            $user->syncRoles([]);
-            $user->delete();
-        });
+        $user->delete();
     }
 
     public function tieneRegistrosAsociados(User $user): bool
@@ -278,21 +104,20 @@ class UsuarioService
             || $user->estudiantes()->exists();
     }
 
-    public function esUltimoDirectorActivo(User $user): bool
+    public function esUltimoDirector(User $user): bool
     {
-        if (! $user->hasRole(User::ROL_DIRECTOR) || $user->estado !== User::ESTADO_ACTIVO) {
+        if (! $user->hasRole(User::ROL_DIRECTOR)) {
             return false;
         }
 
-        return User::role(User::ROL_DIRECTOR)
-            ->where('estado', User::ESTADO_ACTIVO)
+        return User::conRol(User::ROL_DIRECTOR)
             ->where('id', '!=', $user->id)
             ->doesntExist();
     }
 
     /**
-     * Un cambio de rol no puede dejar sin director activo al sistema ni
-     * contradecir un perfil ya vinculado a la cuenta.
+     * Un cambio de rol no puede dejar sin director al sistema ni contradecir
+     * un perfil ya vinculado a la cuenta.
      */
     public function validarCambioDeRol(User $user, string $nuevoRol): void
     {
@@ -300,8 +125,8 @@ class UsuarioService
             throw new \DomainException('Rol no permitido.');
         }
 
-        if ($nuevoRol !== User::ROL_DIRECTOR && $this->esUltimoDirectorActivo($user)) {
-            throw new \DomainException('No se puede quitar el rol al último director activo.');
+        if ($nuevoRol !== User::ROL_DIRECTOR && $this->esUltimoDirector($user)) {
+            throw new \DomainException('No se puede quitar el rol al último director.');
         }
 
         if ($nuevoRol !== User::ROL_DOCENTE && $user->profesor()->exists()) {
@@ -313,22 +138,11 @@ class UsuarioService
         }
     }
 
-    // ---------------------------------------------------------------
-    // Correspondencia cuenta - perfil
-    // ---------------------------------------------------------------
-
-    /**
-     * El perfil (docente, padre o encargado) vinculado a una cuenta debe ser
-     * de la misma persona: mismo DUI y el rol esperado.
-     */
-    public function verificarCorrespondencia(User $user, string $duiPerfil, string $rolEsperado): void
+    /** El perfil (docente, padre o encargado) vinculado a una cuenta exige el rol correspondiente. */
+    public function verificarRol(User $user, string $rolEsperado): void
     {
         if (! $user->hasRole($rolEsperado)) {
             throw new \DomainException("La cuenta seleccionada no tiene el rol {$rolEsperado}.");
-        }
-
-        if ($user->dui === null || DuiFormato::normalizar($duiPerfil) !== $user->dui) {
-            throw new \DomainException('El DUI no coincide con el de la cuenta de usuario.');
         }
     }
 }

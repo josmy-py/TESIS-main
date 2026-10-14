@@ -33,8 +33,8 @@ class EstudiantesFamiliaTest extends TestCase
         parent::setUp();
         $this->sembrarRoles();
         $this->catalogos = $this->catalogosBasicos();
-        $this->a = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000001-8', 'nombre' => 'Cuenta A']);
-        $this->b = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000002-6', 'nombre' => 'Cuenta B']);
+        $this->a = $this->usuario(User::ROL_ENCARGADO);
+        $this->b = $this->usuario(User::ROL_ENCARGADO);
         $this->director = $this->usuario(User::ROL_DIRECTOR);
     }
 
@@ -74,8 +74,7 @@ class EstudiantesFamiliaTest extends TestCase
         $this->como($this->a)->getJson("/api/estudiantes/{$deB->id}")->assertNotFound();
         $this->como($this->a)->getJson("/api/estudiantes/{$deA->id}")->assertOk()
             ->assertJsonPath('estudiante.padres.0.pivot.parentesco', 'Madre')
-            ->assertJsonPath('permisos.editar_nie', true)
-            ->assertJsonPath('permisos.cambiar_cuenta', false);
+            ->assertJsonPath('permisos.editar_nie', true);
 
         // El director ve a todos, con la cuenta responsable, y busca por nombre o NIE
         $this->como($this->director)->getJson('/api/estudiantes')->assertJsonCount(2, 'estudiantes')
@@ -147,29 +146,6 @@ class EstudiantesFamiliaTest extends TestCase
         $this->assertSame(1, Padre::count()); // la persona se conserva
     }
 
-    public function test_director_cambia_la_cuenta_responsable_con_bitacora(): void
-    {
-        $estudiante = $this->estudianteDe($this->a, $this->catalogos['distrito']);
-        $registros = [];
-        Log::shouldReceive('channel')->with('familias')->andReturnSelf();
-        Log::shouldReceive('info')->andReturnUsing(function ($accion, $datos) use (&$registros) {
-            $registros[] = [$accion, $datos];
-        });
-
-        $this->como($this->a)->putJson("/api/estudiantes/{$estudiante->id}/cuenta", ['user_id' => $this->b->id])->assertForbidden();
-        $this->como($this->director)->putJson("/api/estudiantes/{$estudiante->id}/cuenta", ['user_id' => $this->usuario(User::ROL_DOCENTE)->id])
-            ->assertStatus(422)->assertJsonValidationErrors('user_id');
-        $this->como($this->director)->putJson("/api/estudiantes/{$estudiante->id}/cuenta", ['user_id' => $this->b->id])->assertOk();
-
-        $this->assertSame($this->b->id, $estudiante->fresh()->user_id);
-        [$accion, $datos] = end($registros);
-        $this->assertSame('cambio_cuenta', $accion);
-        $this->assertStringContainsString($this->a->email, $datos['cuenta_anterior']);
-        $this->assertStringContainsString($this->director->email, $datos['por']);
-        $this->como($this->b)->getJson("/api/estudiantes/{$estudiante->id}")->assertOk();
-        $this->como($this->a)->getJson("/api/estudiantes/{$estudiante->id}")->assertNotFound();
-    }
-
     // --- Padres y parentescos ---
 
     public function test_padres_solo_de_la_familia_y_sin_estudiantes_ajenos(): void
@@ -220,21 +196,23 @@ class EstudiantesFamiliaTest extends TestCase
         $this->como($this->b)->getJson("/api/estudiantes/{$deB->id}")->assertJsonPath('estudiante.padres.0.nombre', 'Marta Secreta');
     }
 
-    public function test_la_propia_cuenta_se_verifica_con_su_dui(): void
+    public function test_registro_propio_no_toma_registros_ajenos(): void
     {
-        // A registró como padre de su hijo a una persona que luego abre su cuenta B
+        // A registró como padre de su hijo a una persona; B no puede registrarse con ese DUI
         $deA = $this->estudianteDe($this->a, $this->catalogos['distrito']);
         $deB = $this->estudianteDe($this->b, $this->catalogos['distrito']);
         $persona = $this->padreDe($deA, '00000002-6', 'Padre', ['nombre' => 'Persona B']);
 
-        // B se registra como padre con el DUI de su cuenta: se le asigna el mismo registro
         $this->como($this->b)->postJson('/api/padres', ['nombre' => 'Persona B', 'dui' => '000000026', 'es_encargado' => true,
-            'estudiante_id' => $deB->id, 'parentesco' => 'Padre'])->assertOk()->assertJsonPath('padre.id', $persona->id);
-        $this->assertSame($this->b->id, $persona->fresh()->user_id);
-        $this->assertSame(1, Padre::count());
-        $this->assertSame(2, DB::table('parientes')->where('padre_id', $persona->id)->count());
+            'estudiante_id' => $deB->id, 'parentesco' => 'Padre'])->assertStatus(422)->assertJsonValidationErrors('dui');
+        $this->assertNull($persona->fresh()->user_id);
 
-        // Otra cuenta no puede apropiarse de un registro ajeno con un DUI que no es el suyo
+        // Con un DUI nuevo queda como su propio registro, una sola vez
+        $this->como($this->b)->postJson('/api/padres', ['nombre' => 'Cuenta B', 'dui' => '00000005-0', 'es_encargado' => true,
+            'estudiante_id' => $deB->id, 'parentesco' => 'Padre'])->assertCreated()->assertJsonPath('padre.user_id', $this->b->id);
+        $this->como($this->b)->postJson('/api/padres', ['nombre' => 'Otra vez', 'dui' => '00000009-2', 'es_encargado' => true])->assertStatus(409);
+
+        // Otra cuenta no puede vincular a un registro ajeno
         $deA2 = $this->estudianteDe($this->a, $this->catalogos['distrito']);
         $this->padreDe($deA2, '00000004-2', 'Madre');
         $this->como($this->b)->postJson("/api/estudiantes/{$deB->id}/padres", ['dui' => '00000004-2', 'parentesco' => 'Madre'])->assertStatus(409);
@@ -276,12 +254,12 @@ class EstudiantesFamiliaTest extends TestCase
         $this->como($this->a)->putJson("/api/padres/{$madre->id}", $datos)->assertStatus(409);
         $this->como($this->director)->putJson("/api/padres/{$madre->id}", array_merge($datos, ['nombre' => 'Por dirección']))->assertOk();
 
-        // Con cuenta propia: solo esa cuenta y sin cambiar su DUI
+        // Con cuenta propia: solo esa cuenta lo edita y el DUI no se repite
         $propio = $this->como($this->a)->postJson('/api/padres', ['nombre' => 'Cuenta A', 'dui' => '00000001-8', 'es_encargado' => true])->json('padre.id');
-        $this->como($this->a)->putJson("/api/padres/{$propio}", ['nombre' => 'Cuenta A', 'dui' => '00000004-2'])
-            ->assertStatus(422)->assertJsonValidationErrors('dui');
         $this->como($this->a)->putJson("/api/padres/{$propio}", ['nombre' => 'Cuenta A editada', 'dui' => '00000001-8'])->assertOk();
-        $this->como($this->a)->putJson("/api/padres/{$propio}", ['nombre' => 'Cuenta A', 'dui' => '00000003-4'])->assertStatus(422);
+        $this->como($this->a)->putJson("/api/padres/{$propio}", ['nombre' => 'Cuenta A', 'dui' => '00000003-4'])
+            ->assertStatus(422)->assertJsonValidationErrors('dui');
+        $this->como($this->b)->putJson("/api/padres/{$propio}", ['nombre' => 'Cuenta A', 'dui' => '00000001-8'])->assertNotFound();
     }
 
     public function test_desvincular_protege_relaciones_vigentes(): void
@@ -328,23 +306,22 @@ class EstudiantesFamiliaTest extends TestCase
     {
         $datos = ['nombre' => 'Tía A', 'parentesco' => 'Tío(a)', 'telefono' => '7000-0001', 'direccion' => 'Calle 2'];
 
-        $this->como($this->a)->postJson('/api/encargados', $datos + ['dui' => '00000003-4'])->assertStatus(422)->assertJsonValidationErrors('dui');
         $this->como($this->a)->postJson('/api/encargados', $datos + ['dui' => '000000018'])->assertCreated()
             ->assertJsonPath('encargado.user_id', $this->a->id)->assertJsonPath('encargado.dui', '00000001-8');
-        $this->como($this->a)->postJson('/api/encargados', $datos + ['dui' => '00000001-8'])->assertStatus(409);
+        $this->como($this->a)->postJson('/api/encargados', $datos + ['dui' => '00000009-2'])->assertStatus(409);
         $this->como($this->a)->postJson('/api/encargados', array_merge($datos, ['telefono' => '1234']) + ['dui' => '00000001-8'])
             ->assertStatus(422)->assertJsonValidationErrors('telefono');
 
         $this->como($this->a)->getJson('/api/familia/perfil')->assertOk()
-            ->assertJsonPath('encargado.nombre', 'Tía A')->assertJsonPath('padre', null)->assertJsonPath('cuenta.dui', '00000001-8');
+            ->assertJsonPath('encargado.nombre', 'Tía A')->assertJsonPath('padre', null)->assertJsonPath('cuenta.email', $this->a->email);
     }
 
     public function test_encargados_visibles_y_registro_de_la_direccion(): void
     {
         $datos = ['parentesco' => 'Abuelo(a)', 'telefono' => '7000-0001', 'direccion' => 'Calle 2'];
 
-        // La dirección registra a una persona que ya tiene cuenta ENCARGADO: se enlaza sola
-        $deB = $this->como($this->director)->postJson('/api/encargados', $datos + ['nombre' => 'Persona B', 'dui' => '000000026'])
+        // Cada cuenta ENCARGADO registra su propio perfil; la dirección registra personas sin cuenta
+        $deB = $this->como($this->b)->postJson('/api/encargados', $datos + ['nombre' => 'Persona B', 'dui' => '000000026'])
             ->assertCreated()->assertJsonPath('encargado.user_id', $this->b->id)->json('encargado.id');
         $this->como($this->director)->postJson('/api/encargados', $datos + ['nombre' => 'Repetido', 'dui' => '00000002-6'])
             ->assertStatus(422)->assertJsonValidationErrors('dui');
@@ -383,7 +360,6 @@ class EstudiantesFamiliaTest extends TestCase
 
     public function test_seeder_de_familia_es_reproducible(): void
     {
-        $this->b->update(['dui' => '00000009-2', 'email' => 'b@otra.test']); // libera el DUI de la cuenta de prueba
         $this->seed(UsuarioPruebaSeeder::class);
         $this->seed(FamiliaPruebaSeeder::class);
         $conteo = [Estudiante::count(), Padre::count(), DB::table('parientes')->count()];
@@ -392,7 +368,7 @@ class EstudiantesFamiliaTest extends TestCase
         $this->assertSame([2, 2, 4], $conteo);
         $this->assertSame($conteo, [Estudiante::count(), Padre::count(), DB::table('parientes')->count()]);
         $cuenta = User::where('email', 'encargado@siga.test')->first();
-        $this->assertSame($cuenta->id, Padre::where('dui', $cuenta->dui)->value('user_id'));
+        $this->assertSame($cuenta->id, Padre::where('dui', '00000002-6')->value('user_id'));
 
         Artisan::call('siga:diagnostico-familias');
         $this->assertStringContainsString('Los datos familiares cumplen las reglas de M5.', Artisan::output());

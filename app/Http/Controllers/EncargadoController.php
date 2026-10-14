@@ -74,11 +74,32 @@ class EncargadoController extends Controller
         $cuenta = $request->user();
 
         return response()->json([
-            'cuenta' => $cuenta->only(['id', 'nombre', 'email', 'dui']),
+            'cuenta' => $cuenta->only(['id', 'email']),
             'padre' => Padre::where('user_id', $cuenta->id)->first(),
             'encargado' => Encargado::where('user_id', $cuenta->id)->first(),
             'estudiantes' => $cuenta->estudiantes()->count(),
+            'estado_matricula' => $this->estadoMatricula($cuenta->id),
         ]);
+    }
+
+    /**
+     * Estado de matrícula de la cuenta en el año actual (el activo o, sin
+     * él, el último con matrículas de sus estudiantes). Decide el menú:
+     * pendiente si alguna solicitud espera revisión; aprobada si no hay
+     * pendientes y al menos una está aprobada; si no, sin_matricula.
+     */
+    private function estadoMatricula(int $cuentaId): string
+    {
+        $matriculas = \App\Models\Matricula::whereHas('estudiante', fn ($q) => $q->where('user_id', $cuentaId));
+        $anioId = \App\Models\AnioLectivo::activo()?->id
+            ?? (clone $matriculas)->whereNotNull('anio_lectivo_id')->orderByDesc('anio_lectivo_id')->value('anio_lectivo_id');
+        $estados = $matriculas->where('anio_lectivo_id', $anioId)->pluck('estado');
+
+        return match (true) {
+            $estados->contains('pendiente') => 'pendiente',
+            $estados->contains('aprobado') => 'aprobada',
+            default => 'sin_matricula',
+        };
     }
 
     private function validar(Request $request): array

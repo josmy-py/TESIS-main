@@ -193,8 +193,8 @@ class SeccionService
         $profesor = Profesor::with('user')->find($profesorId);
         $user = $profesor?->user;
 
-        if (! $user || ! $user->estaActivo() || ! $user->hasRole(User::ROL_DOCENTE)) {
-            throw ValidationException::withMessages(['profesor_id' => 'El docente responsable debe tener una cuenta DOCENTE activa.']);
+        if (! $user || ! $user->hasRole(User::ROL_DOCENTE)) {
+            throw ValidationException::withMessages(['profesor_id' => 'El docente responsable debe tener una cuenta DOCENTE.']);
         }
 
         $ocupado = Seccion::with('grado:id,nombre')

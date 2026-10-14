@@ -19,12 +19,12 @@ use App\Support\CatalogoGrados;
  * - Con historial en SIGA: siempre Reingreso (no se puede pasar por nuevo
  *   ingreso para evitar la validación). Aprobó: el grado correlativo siguiente
  *   con la misma especialidad; reprobó: repite el grado.
- * - Nunca se salta un grado: si el siguiente no está registrado o no tiene
- *   plan vigente, se bloquea con un aviso.
+ * - Nunca se salta un grado: si el siguiente no está registrado, se bloquea
+ *   con un aviso.
  * - Noveno grado pasa a Primer año de bachillerato eligiendo especialidad.
  *   Bachillerato General termina en Segundo año; el tercer año solo existirá
  *   para modalidades técnicas (hoy no está en el catálogo).
- * - Hasta M7 no hay notas anuales: un reingreso sin nota anual queda bloqueado.
+ * - La nota anual la calcula la libreta (M9, LibretaService): un reingreso sin nota anual queda bloqueado.
  */
 class PromocionService
 {
@@ -71,7 +71,7 @@ class PromocionService
         if (! $aprobo) {
             return [
                 'ingreso' => 'Reingreso', 'grados' => [$grado->id], 'especialidad_id' => $especialidad,
-                'mensaje' => "No aprobó {$grado->nombre} en {$anioAnterior}: debe repetir el grado.", 'bloqueo' => null,
+                'mensaje' => "No aprobó {$grado->nombre} en {$anioAnterior}: debe repetir el grado.", 'bloqueo' => null, 'repite' => true,
             ];
         }
 
@@ -118,14 +118,14 @@ class PromocionService
     }
 
     /**
-     * D-M3: plan efectivo de la sección. Es el plan de sus materias asignadas
-     * (M4); si aún no tiene, el único plan vigente del grado para la
-     * especialidad pedida. $estricto (al aprobar) exige que no haya ambigüedad.
+     * D-M3: plan efectivo de la sección, el de sus materias asignadas (M4).
+     * Si la sección aún no tiene materias no hay plan y vale la especialidad
+     * que eligió el encargado en la matrícula.
      * $especialidad: id, null (sin especialidad) o false (no indicada).
      *
      * @return array{plan: ?PlanEstudio, error: ?string, campo: ?string} campo: el dato del formulario que falla
      */
-    public function planEfectivo(Seccion $seccion, int|false|null $especialidad, bool $estricto = false): array
+    public function planEfectivo(Seccion $seccion, int|false|null $especialidad): array
     {
         $seccion->loadMissing('grado');
         $etiqueta = "{$seccion->grado?->nombre} {$seccion->nombre}";
@@ -139,24 +139,7 @@ class PromocionService
             return ['plan' => $plan, 'error' => null, 'campo' => null];
         }
 
-        $vigentes = PlanEstudio::where('grado_id', $seccion->grado_id)->where('estado', true)->get();
-        if ($vigentes->isEmpty()) {
-            return ['plan' => null, 'error' => "El grado {$seccion->grado?->nombre} no tiene un plan de estudio vigente: no se puede matricular.", 'campo' => 'seccion_id'];
-        }
-
-        if ($estricto && $vigentes->count() > 1) {
-            return ['plan' => null, 'error' => "La sección {$etiqueta} aún no tiene materias asignadas y su grado tiene varios planes vigentes: asigne las materias de la sección (plan definido) antes de aprobar.", 'campo' => 'seccion_id'];
-        }
-
-        $candidatos = $especialidad === false ? $vigentes : $vigentes->filter(fn (PlanEstudio $p) => self::id($p->especialidad_id) === $especialidad);
-        if ($candidatos->isEmpty()) {
-            return ['plan' => null, 'error' => "No hay un plan vigente de {$seccion->grado?->nombre} para esa especialidad.", 'campo' => 'especialidad_id'];
-        }
-        if ($candidatos->count() > 1) {
-            return ['plan' => null, 'error' => "El grado {$seccion->grado?->nombre} tiene varios planes vigentes: indique la especialidad.", 'campo' => 'especialidad_id'];
-        }
-
-        return ['plan' => $candidatos->first(), 'error' => null, 'campo' => null];
+        return ['plan' => null, 'error' => null, 'campo' => null];
     }
 
     public static function id($valor): ?int

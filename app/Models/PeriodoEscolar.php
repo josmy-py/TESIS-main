@@ -6,10 +6,6 @@ use Illuminate\Database\Eloquent\Model;
 
 class PeriodoEscolar extends Model
 {
-    public const PENDIENTE = 'pendiente';
-    public const ABIERTO = 'abierto';
-    public const CERRADO = 'cerrado';
-
     protected $table = 'periodo_escolares';
 
     protected $fillable = [
@@ -51,12 +47,11 @@ class PeriodoEscolar extends Model
 
     /**
      * Regla para M7 (notas) y M8 (conducta): solo se registran o modifican
-     * datos en un periodo abierto de un año activo.
+     * datos en un periodo de un año activo.
      */
     public function permiteRegistros(): bool
     {
-        return $this->estado === self::ABIERTO
-            && $this->anioLectivo !== null
+        return $this->anioLectivo !== null
             && $this->anioLectivo->estado === AnioLectivo::ACTIVO;
     }
 }

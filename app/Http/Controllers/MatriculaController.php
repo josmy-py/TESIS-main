@@ -20,7 +20,11 @@ class MatriculaController extends Controller
     private const MENSAJES = [
         'ingreso.required' => 'El tipo de ingreso es obligatorio.',
         'estudiante_id.required' => 'El estudiante es obligatorio.',
-        'seccion_id.required' => 'Seleccione la sección (grado y turno).',
+        'seccion_id.prohibited' => 'La sección la asigna la dirección al revisar la matrícula.',
+        'nie.required' => 'El NIE del estudiante es obligatorio.',
+        'nie.regex' => 'El NIE debe tener solo números (hasta 10 dígitos).',
+        'nie.unique' => 'El NIE ya está registrado; contacte a la dirección.',
+        'nie.prohibited' => 'En Nuevo ingreso sin traslado el NIE lo registra la dirección al aprobar la matrícula.',
         'foto.required' => 'La foto es obligatoria.',
         'foto.image' => 'La foto debe ser una imagen JPEG o PNG.',
         'documento.required_if' => 'La partida de nacimiento es obligatoria para Nuevo ingreso.',
@@ -29,8 +33,6 @@ class MatriculaController extends Controller
         'es_trasladado.boolean' => 'El campo es trasladado debe ser verdadero o falso.',
         'discapacidades.*.exists' => 'Una de las discapacidades no existe.',
         'discapacidades.*.distinct' => 'Hay discapacidades repetidas.',
-        'motivo.required' => 'El motivo del rechazo es obligatorio.',
-        'motivo.min' => 'Escriba un motivo de al menos 5 caracteres.',
     ];
 
     public function __construct(private MatriculaService $matriculaService) {}
@@ -58,7 +60,12 @@ class MatriculaController extends Controller
             $validador = Validator::make($request->all(), [
                 'ingreso' => 'required|in:Nuevo ingreso,Reingreso',
                 'estudiante_id' => 'required|integer|exists:estudiantes,id',
-                'seccion_id' => 'required|integer|exists:secciones,id',
+                // NIE: el encargado lo ingresa en Reingreso o con traslado; en Nuevo ingreso sin traslado lo agrega la dirección
+                'nie' => $propietarioId && $request->input('ingreso') === 'Nuevo ingreso' && ! $request->boolean('es_trasladado')
+                    ? 'prohibited'
+                    : $this->reglaNie((int) $request->input('estudiante_id'), $propietarioId !== null),
+                // El encargado no elige sección: la asigna la dirección
+                'seccion_id' => $propietarioId ? 'prohibited' : 'nullable|integer|exists:secciones,id',
                 'anio_lectivo_id' => 'nullable|integer',
                 'especialidad_id' => 'nullable|integer|exists:especialidades,id',
                 'encargado_id' => 'nullable|integer|exists:encargados,id',
@@ -108,8 +115,14 @@ class MatriculaController extends Controller
     public function update(Request $request, string $id)
     {
         return $this->responder(function () use ($request, $id) {
+            $propietarioId = $this->propietarioId();
+            $actual = $this->matriculaService->matriculas($propietarioId)->whereKey($id)->first(['id', 'estudiante_id', 'ingreso', 'es_trasladado']);
+            $trasladado = $request->has('es_trasladado') ? $request->boolean('es_trasladado') : (bool) $actual?->es_trasladado;
             $datos = $request->validate([
-                'seccion_id' => 'sometimes|required|integer|exists:secciones,id',
+                'seccion_id' => $propietarioId ? 'prohibited' : 'sometimes|required|integer|exists:secciones,id',
+                'nie' => $propietarioId && $actual?->ingreso === 'Nuevo ingreso' && ! $trasladado
+                    ? 'prohibited'
+                    : $this->reglaNie((int) $actual?->estudiante_id, false),
                 'especialidad_id' => 'sometimes|nullable|integer|exists:especialidades,id',
                 'encargado_id' => 'sometimes|nullable|integer|exists:encargados,id',
                 'enfermedad_id' => 'sometimes|nullable|integer|exists:enfermedades,id',
@@ -120,7 +133,6 @@ class MatriculaController extends Controller
                 'documento' => 'sometimes|file|mimes:pdf,jpeg,png,jpg|max:2048',
             ], self::MENSAJES);
 
-            $propietarioId = $this->propietarioId();
             if (array_key_exists('encargado_id', $datos)) {
                 $this->validarPropiedad(null, $datos['encargado_id'], $propietarioId);
             }
@@ -148,40 +160,37 @@ class MatriculaController extends Controller
         }, 'Error al cancelar la matrícula', 'Matrícula no encontrada');
     }
 
-    /** Solo DIRECTOR (págs. 63-64): aprobar (con sección opcional si falta) o rechazar con motivo. */
+    /** Solo DIRECTOR (págs. 63-64): aprobar (con sección opcional si falta) o rechazar. */
     public function estadoMatricula(Request $request, $id)
     {
         return $this->responder(function () use ($request, $id) {
             $datos = $request->validate([
                 'estado' => 'required|in:aprobado,rechazado',
                 'seccion_id' => 'nullable|integer|exists:secciones,id',
-                'motivo' => 'required_if:estado,rechazado|nullable|string|min:5|max:500',
+                'nie' => ['nullable', 'string', 'regex:/^[0-9]{1,10}$/'],
             ], self::MENSAJES + [
                 'estado.in' => 'Solo se puede aprobar o rechazar una matrícula.',
-                'motivo.required_if' => 'El motivo del rechazo es obligatorio.',
             ]);
 
             if ($datos['estado'] === 'aprobado') {
-                $matricula = $this->matriculaService->aprobar($id, $datos['seccion_id'] ?? null, $request->user());
-                $mensaje = 'Matrícula aprobada. Se notificó al encargado.';
+                $matricula = $this->matriculaService->aprobar($id, $datos['seccion_id'] ?? null, $request->user(), $datos['nie'] ?? null);
+                $mensaje = 'Matrícula aprobada.';
             } else {
-                $matricula = $this->matriculaService->rechazar($id, trim($datos['motivo']), $request->user());
-                $mensaje = 'Matrícula rechazada. Se notificó el motivo al encargado.';
+                $matricula = $this->matriculaService->rechazar($id, $request->user());
+                $mensaje = 'Matrícula rechazada.';
             }
 
             return response()->json(['message' => $mensaje, 'matricula' => $matricula]);
         }, 'Error al actualizar el estado de la matrícula', 'Matrícula no encontrada');
     }
 
-    /** Solo DIRECTOR: cambia la sección (mismo grado, con cupo) de una pendiente o aprobada. */
-    public function cambiarSeccion(Request $request, $id)
+    /** Solo DIRECTOR: grados, turnos y secciones con cupo donde se puede ubicar la matrícula. */
+    public function seccionesParaAsignar($id)
     {
-        return $this->responder(function () use ($request, $id) {
-            $datos = $request->validate(['seccion_id' => 'required|integer|exists:secciones,id'], self::MENSAJES);
-            $matricula = $this->matriculaService->cambiarSeccion($id, (int) $datos['seccion_id'], $request->user());
-
-            return response()->json(['message' => 'Sección actualizada.', 'matricula' => $matricula]);
-        }, 'Error al cambiar la sección', 'Matrícula no encontrada');
+        return $this->responder(
+            fn () => response()->json($this->matriculaService->seccionesParaAsignar($id)),
+            'Error al obtener las secciones', 'Matrícula no encontrada'
+        );
     }
 
     /** D-M9: foto o documento desde el disco privado, solo para la cuenta dueña o la dirección. */
@@ -299,6 +308,13 @@ class MatriculaController extends Controller
 
             return response()->json(['duplicidad' => false, 'message' => 'El estudiante no tiene una matrícula registrada']);
         }, 'Error al verificar la matrícula', 'Estudiante no encontrado');
+    }
+
+    /** NIE del estudiante: solo números, hasta 10 dígitos, único (sin contar al propio estudiante). */
+    private function reglaNie(int $estudianteId, bool $obligatorio): array
+    {
+        return [$obligatorio ? 'required' : 'sometimes', 'required', 'string', 'regex:/^[0-9]{1,10}$/',
+            \Illuminate\Validation\Rule::unique('estudiantes', 'nie')->ignore($estudianteId)];
     }
 
     /**

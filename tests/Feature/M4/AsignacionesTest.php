@@ -34,7 +34,6 @@ class AsignacionesTest extends TestCase
     private array $catalogos;
     private AnioLectivo $anio;
     private Grado $primero;
-    private Grado $segundo;
     private Grado $bachillerato;
     private Profesor $docente;
     private Profesor $otroDocente;
@@ -48,11 +47,10 @@ class AsignacionesTest extends TestCase
         parent::setUp();
         $this->sembrarRoles();
         $this->director = $this->usuario(User::ROL_DIRECTOR);
-        $this->encargado = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000003-4']);
+        $this->encargado = $this->usuario(User::ROL_ENCARGADO);
         $this->catalogos = $this->catalogosBasicos();
         $this->anio = $this->anio('2026', AnioLectivo::ACTIVO);
         $this->primero = Grado::create(['nombre' => 'Primer grado']);
-        $this->segundo = Grado::create(['nombre' => 'Segundo grado']);
         $this->bachillerato = Grado::create(['nombre' => 'Primer año de bachillerato']);
         $this->docente = $this->nuevoDocente();
         $this->otroDocente = $this->nuevoDocente();
@@ -72,11 +70,11 @@ class AsignacionesTest extends TestCase
         return $anio;
     }
 
-    private function nuevoDocente(?string $estado = null, string $rol = User::ROL_DOCENTE): Profesor
+    private function nuevoDocente(string $rol = User::ROL_DOCENTE): Profesor
     {
         static $n = 0;
         $n++;
-        $user = $this->usuario($rol, [], $estado);
+        $user = $this->usuario($rol);
 
         return Profesor::create([
             'nombre' => "Docente {$n}", 'dui' => sprintf('2%07d-0', $n), 'fecha_nacimiento' => '1990-01-01',
@@ -117,13 +115,13 @@ class AsignacionesTest extends TestCase
 
     private function conEvaluacion(int $asignacionId): void
     {
-        $periodo = DB::table('periodo_escolares')->insertGetId(['nombre' => 'Primer trimestre', 'nivel' => 1, 'estado' => 'abierto', 'anio_lectivo_id' => $this->anio->id]);
+        $periodo = DB::table('periodo_escolares')->insertGetId(['nombre' => 'Primer trimestre', 'nivel' => 1, 'anio_lectivo_id' => $this->anio->id]);
         DB::table('evaluaciones')->insert(['nombre' => 'Examen', 'porcentaje' => 35, 'periodo_escolar_id' => $periodo, 'asignacion_id' => $asignacionId]);
     }
 
     private function conBoleta(int $asignacionId): void
     {
-        $periodo = DB::table('periodo_escolares')->insertGetId(['nombre' => 'Segundo trimestre', 'nivel' => 2, 'estado' => 'abierto', 'anio_lectivo_id' => $this->anio->id]);
+        $periodo = DB::table('periodo_escolares')->insertGetId(['nombre' => 'Segundo trimestre', 'nivel' => 2, 'anio_lectivo_id' => $this->anio->id]);
         $matricula = $this->matriculaDe($this->estudianteDe($this->encargado, $this->catalogos['distrito']), $this->catalogos, [
             'anio_lectivo_id' => $this->anio->id, 'seccion_id' => $this->seccion->id, 'estado' => 'aprobado',
         ]);
@@ -139,16 +137,6 @@ class AsignacionesTest extends TestCase
             ->assertJsonPath('asignacion.asignatura.nombre', 'Matemática')
             ->assertJsonPath('asignacion.seccion.grado.nombre', 'Primer grado')
             ->assertJsonPath('asignacion.evaluaciones_count', 0);
-    }
-
-    public function test_materia_de_otro_grado_no_se_asigna(): void
-    {
-        $otroPlan = $this->plan($this->segundo);
-        $ciencia = Asignatura::create(['nombre' => 'Ciencia', 'plan_estudio_id' => $otroPlan->id]);
-
-        $this->asignar(['asignatura_id' => $ciencia->id])->assertStatus(422)
-            ->assertJsonPath('errors.asignatura_id.0', 'La materia Ciencia no pertenece al pensum de Primer grado.');
-        $this->assertSame(0, Asignacion::count());
     }
 
     public function test_materia_de_plan_no_vigente_no_se_asigna(): void
@@ -224,15 +212,11 @@ class AsignacionesTest extends TestCase
         DB::table('asignaciones')->insert(['profesor_id' => $this->otroDocente->id, 'seccion_id' => $this->seccion->id, 'asignatura_id' => $this->matematica->id]);
     }
 
-    public function test_docente_debe_tener_cuenta_docente_activa(): void
+    public function test_docente_debe_tener_cuenta_docente(): void
     {
-        $inactivo = $this->nuevoDocente(User::ESTADO_INACTIVO);
-        $sinRolDocente = $this->nuevoDocente(null, User::ROL_ENCARGADO);
-
-        foreach ([$inactivo, $sinRolDocente] as $profesor) {
-            $this->asignar(['profesor_id' => $profesor->id])->assertStatus(422)
-                ->assertJsonPath('errors.profesor_id.0', 'El docente debe tener una cuenta DOCENTE activa.');
-        }
+        $sinRolDocente = $this->nuevoDocente(User::ROL_ENCARGADO);
+        $this->asignar(['profesor_id' => $sinRolDocente->id])->assertStatus(422)
+            ->assertJsonPath('errors.profesor_id.0', 'El docente debe tener una cuenta DOCENTE.');
         $this->asignar(['profesor_id' => 999])->assertStatus(422)->assertJsonValidationErrors('profesor_id');
     }
 

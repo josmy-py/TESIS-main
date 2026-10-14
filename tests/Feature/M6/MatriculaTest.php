@@ -13,8 +13,6 @@ use App\Models\Padre;
 use App\Models\PlanEstudio;
 use App\Models\Seccion;
 use App\Models\User;
-use App\Notifications\MatriculaAprobada;
-use App\Notifications\MatriculaRechazada;
 use Database\Seeders\AsignacionPruebaSeeder;
 use Database\Seeders\FamiliaPruebaSeeder;
 use Database\Seeders\GeografiaElSalvadorSeeder;
@@ -58,8 +56,8 @@ class MatriculaTest extends TestCase
         $this->sembrarRoles();
 
         $this->director = $this->usuario(User::ROL_DIRECTOR);
-        $this->a = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000001-8']);
-        $this->b = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000002-6']);
+        $this->a = $this->usuario(User::ROL_ENCARGADO);
+        $this->b = $this->usuario(User::ROL_ENCARGADO);
         $this->catalogos = $this->catalogosBasicos();
         $this->anio = $this->anio('2027', AnioLectivo::ACTIVO);
         $this->primero = Grado::create(['nombre' => 'Primer grado']);
@@ -100,7 +98,7 @@ class MatriculaTest extends TestCase
     private function plan(Grado $grado, ?int $especialidadId = null, string $nombre = 'Plan', bool $vigente = true): PlanEstudio
     {
         return PlanEstudio::create([
-            'nombre' => "{$nombre} {$grado->id}", 'grado_id' => $grado->id, 'especialidad_id' => $especialidadId, 'estado' => $vigente,
+            'nombre' => "{$nombre} {$grado->id}", 'especialidad_id' => $especialidadId, 'estado' => $vigente,
             'fecha_inicio' => '2026-01-15', 'fecha_fin' => '2030-11-30', 'fecha_aprobacion' => '2025-12-01', 'descripcion' => 'Pensum',
         ]);
     }
@@ -120,12 +118,19 @@ class MatriculaTest extends TestCase
         return $estudiante;
     }
 
+    /** El encargado solicita sin sección; la dirección puede indicarla (por defecto Primer grado A). */
     private function solicitar(Estudiante $estudiante, array $datos = [], ?User $cuenta = null)
     {
-        return $this->como($cuenta ?? $this->a)->post('/api/matriculas', $datos + [
+        $cuenta ??= $this->a;
+        $director = $cuenta->is($this->director);
+        $seccion = $director ? ['seccion_id' => $this->primeroA->id] : [];
+        // El encargado envía el NIE en Reingreso o con traslado; en Nuevo ingreso sin traslado lo agrega la dirección
+        $conNie = $director || ($datos['ingreso'] ?? 'Nuevo ingreso') === 'Reingreso' || ! empty($datos['es_trasladado']);
+        $nie = $conNie && ! array_key_exists('nie', $datos) ? ['nie' => $estudiante->nie] : [];
+
+        return $this->como($cuenta)->post('/api/matriculas', $datos + $seccion + $nie + [
             'ingreso' => 'Nuevo ingreso',
             'estudiante_id' => $estudiante->id,
-            'seccion_id' => $this->primeroA->id,
             'foto' => UploadedFile::fake()->image('foto.jpg'),
             'documento' => UploadedFile::fake()->create('partida.pdf', 20, 'application/pdf'),
             'es_trasladado' => 0,
@@ -156,25 +161,20 @@ class MatriculaTest extends TestCase
 
     // ---------------------------------------------------------------- crear
 
-    public function test_crear_exige_seccion_partida_y_responsable(): void
+    public function test_crear_sin_seccion_con_partida_y_responsable(): void
     {
         $hijo = $this->hijoDeA();
 
-        // Sección obligatoria (D-M4) y partida para Nuevo ingreso (pág. 57)
-        $this->solicitar($hijo, ['seccion_id' => null])->assertStatus(422)->assertJsonValidationErrors('seccion_id');
+        // El encargado no elige la sección (la asigna la dirección); partida para Nuevo ingreso (pág. 57)
+        $this->solicitar($hijo, ['seccion_id' => $this->primeroA->id])->assertStatus(422)
+            ->assertJsonPath('errors.seccion_id.0', 'La sección la asigna la dirección al revisar la matrícula.');
         $this->solicitar($hijo, ['documento' => null])->assertStatus(422)
             ->assertJsonPath('errors.documento.0', 'La partida de nacimiento es obligatoria para Nuevo ingreso.');
 
-        // Sin encargado_id y sin que la cuenta sea padre o madre del estudiante: falta el responsable (D-M1)
-        $sinVinculo = $this->estudianteDe($this->a, $this->catalogos['distrito']);
-        $this->solicitar($sinVinculo)->assertStatus(422)->assertJsonValidationErrors('encargado_id');
-        // Con el perfil de encargado propio sí se admite
-        $tia = Encargado::create(['nombre' => 'Tía A', 'parentesco' => 'Tío(a)', 'telefono' => '7000-0001', 'dui' => '00000004-2', 'direccion' => 'X', 'user_id' => $this->a->id]);
-        $this->solicitar($sinVinculo, ['encargado_id' => $tia->id])->assertCreated();
-
-        // Sin enfermedad ni especialidad (D-M2, D-M8): queda pendiente y los archivos van al disco privado
+        // Sin enfermedad ni especialidad (D-M2, D-M8): queda pendiente, sin sección, y los archivos van al disco privado
         $respuesta = $this->solicitar($hijo)->assertCreated()
             ->assertJsonPath('matricula.estado', 'pendiente')
+            ->assertJsonPath('matricula.seccion_id', null)
             ->assertJsonPath('matricula.especialidad_id', null)
             ->assertJsonPath('matricula.enfermedad_id', null)
             ->assertJsonMissingPath('matricula.foto');
@@ -194,6 +194,38 @@ class MatriculaTest extends TestCase
             ->assertJsonPath('archivos.foto', true);
     }
 
+    public function test_responsable_padre_o_encargado_de_la_cuenta(): void
+    {
+        $encargado = fn (string $nombre) => ['nombre' => $nombre, 'parentesco' => 'Tío(a)', 'telefono' => '7000-0001',
+            'dui' => \Database\Factories\UserFactory::duiValido(), 'direccion' => 'Calle 2'];
+
+        // La cuenta A es el padre responsable: no registra un encargado adicional ni lo indica en la matrícula
+        $this->como($this->a)->postJson('/api/encargados', $encargado('Tía A'))->assertStatus(409)
+            ->assertJsonPath('message', 'Usted está registrado como padre o madre: es el responsable de sus estudiantes y no se registran encargados adicionales.');
+        $this->assertSame(0, Encargado::count());
+        $this->como($this->a)->getJson("/api/matriculas/estudiantes/{$this->hijoDeA()->id}/opciones")->assertOk()
+            ->assertJsonPath('responsable.tipo', 'padre')->assertJsonPath('responsable.id', $this->padreA->id);
+        // Si la cuenta es padre pero no está vinculada a ese estudiante, tampoco hay responsable
+        $sinVinculo = $this->estudianteDe($this->a, $this->catalogos['distrito']);
+        $this->solicitar($sinVinculo)->assertStatus(422)->assertJsonValidationErrors('encargado_id');
+
+        // Cuenta C, que no es el padre: debe registrar su perfil de encargado (con su user_id) antes de matricular
+        $c = $this->usuario(User::ROL_ENCARGADO);
+        $sobrino = $this->estudianteDe($c, $this->catalogos['distrito']);
+        $this->como($c)->getJson("/api/matriculas/estudiantes/{$sobrino->id}/opciones")->assertOk()
+            ->assertJsonPath('responsable.tipo', null);
+        $this->solicitar($sobrino, [], $c)->assertStatus(422)
+            ->assertJsonPath('errors.encargado_id.0', 'Falta el responsable: la cuenta no está vinculada como padre o madre del estudiante, así que debe registrar su perfil de encargado (Mi perfil) antes de matricular.');
+        $perfil = $this->como($c)->postJson('/api/encargados', $encargado('Tío C'))->assertCreated()->json('encargado');
+        $this->assertSame($c->id, Encargado::find($perfil['id'])->user_id);
+        // Ya con perfil de encargado no puede registrarse también como padre responsable
+        $this->como($c)->postJson('/api/padres', ['nombre' => 'Tío C', 'dui' => \Database\Factories\UserFactory::duiValido(), 'es_encargado' => true])
+            ->assertStatus(409)->assertJsonPath('message', 'Su cuenta ya tiene un perfil de encargado: el responsable de sus estudiantes es ese perfil.');
+        // El perfil se usa como responsable aunque no se envíe encargado_id
+        $id = $this->solicitar($sobrino, [], $c)->assertCreated()->assertJsonPath('matricula.encargado_id', $perfil['id'])->json('matricula.id');
+        $this->como($c)->getJson("/api/matriculas/{$id}")->assertJsonPath('responsable.tipo', 'encargado')->assertJsonPath('responsable.nombre', 'Tío C');
+    }
+
     public function test_responsable_ajeno_o_estudiante_ajeno_se_rechaza(): void
     {
         $hijo = $this->hijoDeA();
@@ -201,10 +233,10 @@ class MatriculaTest extends TestCase
         $sinCuenta = Encargado::create(['nombre' => 'Abuela', 'parentesco' => 'Abuelo(a)', 'telefono' => '7000-0003', 'dui' => '00000007-7', 'direccion' => 'X']);
 
         $this->solicitar($hijo, ['encargado_id' => $deB->id])->assertStatus(422)->assertJsonValidationErrors('encargado_id');
-        // Un encargado sin cuenta solo lo indica la dirección
+        // Un encargado sin cuenta no es responsable, ni siquiera indicado por la dirección
         $this->solicitar($hijo, ['encargado_id' => $sinCuenta->id])->assertStatus(422)->assertJsonValidationErrors('encargado_id');
-        $this->solicitar($hijo, ['encargado_id' => $sinCuenta->id], $this->director)->assertCreated()
-            ->assertJsonPath('matricula.encargado_id', $sinCuenta->id);
+        $this->solicitar($hijo, ['encargado_id' => $sinCuenta->id], $this->director)->assertStatus(422)->assertJsonValidationErrors('encargado_id');
+        $this->solicitar($hijo, [], $this->director)->assertCreated()->assertJsonPath('matricula.encargado_id', null);
 
         $deCuentaB = $this->estudianteDe($this->b, $this->catalogos['distrito']);
         $this->solicitar($deCuentaB)->assertStatus(422)->assertJsonValidationErrors('estudiante_id');
@@ -217,21 +249,21 @@ class MatriculaTest extends TestCase
         $uno = $this->hijoDeA();
         $dos = $this->hijoDeA();
 
-        $id = $this->solicitar($uno, ['seccion_id' => $chica->id])->assertCreated()->json('matricula.id');
+        $id = $this->solicitar($uno, ['seccion_id' => $chica->id], $this->director)->assertCreated()->json('matricula.id');
         // La misma persona no tiene dos matrículas pendientes o aprobadas en el año
         $this->solicitar($uno)->assertStatus(422)->assertJsonValidationErrors('estudiante_id');
-        // La pendiente reserva el cupo
-        $this->solicitar($dos, ['seccion_id' => $chica->id])->assertStatus(422)
+        // La pendiente con sección (asignada por la dirección) reserva el cupo
+        $this->solicitar($dos, ['seccion_id' => $chica->id], $this->director)->assertStatus(422)
             ->assertJsonPath('errors.seccion_id.0', 'La sección Primer grado B no tiene cupos disponibles (1 de 1).');
 
         // Rechazada libera el cupo y permite una nueva solicitud
-        $this->como($this->director)->putJson("/api/matriculas/{$id}/estado", ['estado' => 'rechazado', 'motivo' => 'Documentos ilegibles'])->assertOk();
-        $this->solicitar($dos, ['seccion_id' => $chica->id])->assertCreated();
+        $this->como($this->director)->putJson("/api/matriculas/{$id}/estado", ['estado' => 'rechazado'])->assertOk();
+        $this->solicitar($dos, ['seccion_id' => $chica->id], $this->director)->assertCreated();
         $this->solicitar($uno)->assertCreated();
 
         // Sección de otro año lectivo
         $otro = $this->seccion($this->primero, 'A', 30, $this->anio('2028'));
-        $this->solicitar($this->hijoDeA(), ['seccion_id' => $otro->id])->assertStatus(422)
+        $this->solicitar($this->hijoDeA(), ['seccion_id' => $otro->id], $this->director)->assertStatus(422)
             ->assertJsonPath('errors.seccion_id.0', 'La sección no pertenece al año lectivo de la matrícula.');
     }
 
@@ -242,36 +274,28 @@ class MatriculaTest extends TestCase
         $bachillerato = Grado::create(['nombre' => 'Primer año de bachillerato']);
         $seccion = $this->seccion($bachillerato);
 
-        // Grado sin plan vigente: no se matricula
-        $this->solicitar($this->hijoDeA(), ['seccion_id' => $seccion->id])->assertStatus(422)
-            ->assertJsonPath('errors.seccion_id.0', 'El grado Primer año de bachillerato no tiene un plan de estudio vigente: no se puede matricular.');
-
-        // Dos planes vigentes: hay que indicar la especialidad; una sin plan se rechaza
+        // Sección sin materias asignadas: vale la especialidad que elige el encargado
         $planGeneral = $this->plan($bachillerato, $general, 'General');
-        $this->plan($bachillerato, $contador, 'Contador');
-        $this->solicitar($this->hijoDeA(), ['seccion_id' => $seccion->id])->assertStatus(422)
-            ->assertJsonPath('errors.especialidad_id.0', 'El grado Primer año de bachillerato tiene varios planes vigentes: indique la especialidad.');
-        $otra = DB::table('especialidades')->insertGetId(['nombre' => 'Salud']);
-        $this->solicitar($this->hijoDeA(), ['seccion_id' => $seccion->id, 'especialidad_id' => $otra])->assertStatus(422)
-            ->assertJsonValidationErrors('especialidad_id');
-        $pendiente = $this->solicitar($this->hijoDeA(), ['seccion_id' => $seccion->id, 'especialidad_id' => $contador])->assertCreated()
+        $pendiente = $this->solicitar($this->hijoDeA(), ['seccion_id' => $seccion->id, 'especialidad_id' => $contador], $this->director)->assertCreated()
             ->assertJsonPath('matricula.especialidad_id', $contador)->json('matricula.id');
-
-        // Aprobar con plan ambiguo (sección sin materias asignadas y dos planes): bloqueado
-        $this->aprobar($pendiente)->assertStatus(422)->assertJsonValidationErrors('seccion_id');
-        $this->assertSame('pendiente', Matricula::find($pendiente)->estado);
+        $this->solicitar($this->hijoDeA(), ['seccion_id' => $seccion->id, 'especialidad_id' => 9999], $this->director)->assertStatus(422)
+            ->assertJsonValidationErrors('especialidad_id');
 
         // Con el plan de la sección definido (General), la especialidad Contador ya no es compatible
         $this->asignarPlan($seccion, $planGeneral);
         $this->aprobar($pendiente)->assertStatus(422)
             ->assertJsonPath('errors.especialidad_id.0', "La especialidad no coincide con el plan de la sección Primer año de bachillerato A ({$planGeneral->nombre}).");
-        $this->solicitar($this->hijoDeA(), ['seccion_id' => $seccion->id, 'especialidad_id' => $contador])->assertStatus(422)
+        $this->solicitar($this->hijoDeA(), ['seccion_id' => $seccion->id, 'especialidad_id' => $contador], $this->director)->assertStatus(422)
             ->assertJsonValidationErrors('especialidad_id');
         // Sin indicarla, se toma la del plan de la sección
-        $this->solicitar($this->hijoDeA(), ['seccion_id' => $seccion->id])->assertCreated()->assertJsonPath('matricula.especialidad_id', $general);
+        $this->solicitar($this->hijoDeA(), ['seccion_id' => $seccion->id], $this->director)->assertCreated()->assertJsonPath('matricula.especialidad_id', $general);
 
         // Parvularia y Básica sin especialidad (D-M2): el plan sin especialidad sirve
-        $this->solicitar($this->hijoDeA())->assertCreated()->assertJsonPath('matricula.especialidad_id', null);
+        $this->solicitar($this->hijoDeA(), [], $this->director)->assertCreated()->assertJsonPath('matricula.especialidad_id', null);
+        // El encargado puede indicar la especialidad sin sección; se revisa contra el plan al asignarla
+        $sinSeccion = $this->solicitar($this->hijoDeA(), ['especialidad_id' => $contador])->assertCreated()
+            ->assertJsonPath('matricula.especialidad_id', $contador)->json('matricula.id');
+        $this->aprobar($sinSeccion, ['seccion_id' => $seccion->id])->assertStatus(422)->assertJsonValidationErrors('especialidad_id');
     }
 
     // ------------------------------------------------------------ promoción
@@ -281,26 +305,32 @@ class MatriculaTest extends TestCase
         // Con historial en SIGA no puede pasar por Nuevo ingreso (D-M5)
         $aprobo = $this->hijoDeA();
         $this->historial($aprobo, $this->primero, 'Aprobada');
-        $this->solicitar($aprobo, ['seccion_id' => $this->segundoA->id])->assertStatus(422)
+        $this->solicitar($aprobo)->assertStatus(422)
             ->assertJsonPath('errors.ingreso.0', 'El estudiante tiene matrículas aprobadas en SIGA: corresponde Reingreso, con validación de promoción.');
-        $this->solicitar($aprobo, ['ingreso' => 'Reingreso', 'documento' => null])->assertStatus(422)
-            ->assertJsonPath('errors.seccion_id.0', 'Aprobó Primer grado en 2026: corresponde Segundo grado. La sección elegida es de otro grado.');
         $this->como($this->a)->getJson("/api/matriculas/estudiantes/{$aprobo->id}/opciones")->assertOk()
             ->assertJsonPath('ingreso', 'Reingreso')->assertJsonPath('grados.0.id', $this->segundo->id)->assertJsonPath('permitido', true);
-        $this->solicitar($aprobo, ['ingreso' => 'Reingreso', 'seccion_id' => $this->segundoA->id, 'documento' => null])->assertCreated();
+        // Aprobó su grado anterior: el encargado solicita y la dirección solo lo ubica en el grado siguiente
+        $id = $this->solicitar($aprobo, ['ingreso' => 'Reingreso', 'documento' => null])->assertCreated()->json('matricula.id');
+        $this->aprobar($id, ['seccion_id' => $this->primeroA->id])->assertStatus(422)
+            ->assertJsonPath('errors.seccion_id.0', 'Aprobó Primer grado en 2026: corresponde Segundo grado. La sección elegida es de otro grado.');
+        $this->aprobar($id, ['seccion_id' => $this->segundoA->id])->assertOk();
 
-        // Reprobó: repite el mismo grado
+        // Reprobó: no pasa al grado siguiente, repite el mismo
         $reprobo = $this->hijoDeA();
         $this->historial($reprobo, $this->primero, 'Reprobada');
-        $this->solicitar($reprobo, ['ingreso' => 'Reingreso', 'seccion_id' => $this->segundoA->id])->assertStatus(422)
+        $this->solicitar($reprobo, ['ingreso' => 'Reingreso', 'seccion_id' => $this->segundoA->id], $this->director)->assertStatus(422)
             ->assertJsonPath('errors.seccion_id.0', 'No aprobó Primer grado en 2026: debe repetir el grado. La sección elegida es de otro grado.');
-        $this->solicitar($reprobo, ['ingreso' => 'Reingreso'])->assertCreated();
+        $id = $this->solicitar($reprobo, ['ingreso' => 'Reingreso'])->assertCreated()->json('matricula.id');
+        $this->como($this->director)->getJson("/api/matriculas/{$id}/secciones")->assertOk()
+            ->assertJsonCount(1, 'grados')->assertJsonPath('grados.0.id', $this->primero->id);
+        $this->aprobar($id, ['seccion_id' => $this->segundoA->id])->assertStatus(422);
+        $this->aprobar($id, ['seccion_id' => $this->primeroA->id])->assertOk();
 
-        // Sin nota anual (hasta M7): bloqueado con aviso
+        // Sin nota anual: no se sabe si aprobó, queda bloqueado con aviso
         $sinNota = $this->hijoDeA();
         $this->historial($sinNota, $this->primero, null);
-        $this->solicitar($sinNota, ['ingreso' => 'Reingreso', 'seccion_id' => $this->segundoA->id])->assertStatus(422)
-            ->assertJsonPath('errors.seccion_id.0', 'La matrícula de 2026 (Primer grado) aún no tiene nota anual registrada; sin ella no se puede validar la promoción.');
+        $this->solicitar($sinNota, ['ingreso' => 'Reingreso'])->assertStatus(422)
+            ->assertJsonPath('errors.estudiante_id.0', 'La matrícula de 2026 (Primer grado) aún no tiene nota anual registrada; sin ella no se puede validar la promoción.');
         $this->como($this->a)->getJson("/api/matriculas/estudiantes/{$sinNota->id}/opciones")->assertOk()->assertJsonPath('permitido', false);
 
         // Sin historial: Reingreso no corresponde
@@ -325,7 +355,7 @@ class MatriculaTest extends TestCase
 
         $estudiante = $this->hijoDeA();
         $this->historial($estudiante, $primerAnio, 'Aprobada', $contador);
-        $reingreso = ['ingreso' => 'Reingreso', 'seccion_id' => $seccion->id, 'documento' => null];
+        $reingreso = ['ingreso' => 'Reingreso', 'documento' => null];
         $this->solicitar($estudiante, $reingreso + ['especialidad_id' => $general])->assertStatus(422)
             ->assertJsonPath('errors.especialidad_id.0', 'En reingreso se conserva la especialidad del año anterior.');
         $this->solicitar($estudiante, $reingreso)->assertCreated()->assertJsonPath('matricula.especialidad_id', $contador);
@@ -339,28 +369,20 @@ class MatriculaTest extends TestCase
 
     // ---------------------------------------------------- aprobar y rechazar
 
-    public function test_aprobar_confirma_seccion_cupo_y_notifica(): void
+    public function test_aprobar_confirma_seccion_y_cupo(): void
     {
         $hijo = $this->hijoDeA();
         $id = $this->solicitar($hijo)->assertCreated()->json('matricula.id');
 
-        // Solo la dirección aprueba
-        $this->aprobar($id, [], $this->a)->assertForbidden();
-        $this->aprobar($id)->assertOk()->assertJsonPath('matricula.estado', 'aprobado');
+        // Solo la dirección aprueba, y asigna la sección que el encargado no eligió
+        $this->aprobar($id, ['seccion_id' => $this->primeroA->id], $this->a)->assertForbidden();
+        $this->aprobar($id)->assertStatus(422)->assertJsonPath('errors.seccion_id.0', 'Asigne una sección antes de aprobar la matrícula.');
+        $this->aprobar($id, ['seccion_id' => $this->primeroA->id])->assertOk()->assertJsonPath('matricula.estado', 'aprobado')
+            ->assertJsonPath('matricula.seccion_id', $this->primeroA->id);
         $this->assertSame('activo', $hijo->fresh()->estado);
         $this->aprobar($id)->assertStatus(409);
-
-        // Aviso a la cuenta del estudiante (D-M6)
-        $this->como($this->a)->getJson('/api/notificaciones')->assertOk()
-            ->assertJsonPath('no_leidas', 1)
-            ->assertJsonPath('notificaciones.0.tipo', 'matricula_aprobada')
-            ->assertJsonPath('notificaciones.0.matricula_id', $id);
-        $aviso = $this->a->notifications()->first();
-        $this->assertSame(MatriculaAprobada::class, $aviso->type);
-        $this->como($this->b)->postJson("/api/notificaciones/{$aviso->id}/leida")->assertNotFound();
-        $this->como($this->a)->postJson("/api/notificaciones/{$aviso->id}/leida")->assertOk();
-        $this->como($this->a)->getJson('/api/notificaciones')->assertJsonPath('no_leidas', 0)->assertJsonPath('notificaciones.0.leida', true);
-        $this->como($this->b)->getJson('/api/notificaciones')->assertJsonCount(0, 'notificaciones');
+        // Los avisos no están en el diagrama
+        $this->como($this->a)->getJson('/api/notificaciones')->assertNotFound();
     }
 
     public function test_aprobar_vuelve_a_comprobar_el_cupo_y_la_seccion(): void
@@ -388,21 +410,17 @@ class MatriculaTest extends TestCase
         $this->aprobar($cerrada)->assertStatus(409);
     }
 
-    public function test_rechazar_exige_motivo_y_lo_notifica(): void
+    public function test_rechazar_matricula(): void
     {
         $id = $this->solicitar($this->hijoDeA())->json('matricula.id');
         $rechazar = fn (array $datos) => $this->como($this->director)->putJson("/api/matriculas/{$id}/estado", $datos);
 
-        $rechazar(['estado' => 'rechazado'])->assertStatus(422)->assertJsonPath('errors.motivo.0', 'El motivo del rechazo es obligatorio.');
-        $rechazar(['estado' => 'rechazado', 'motivo' => 'no'])->assertStatus(422)->assertJsonValidationErrors('motivo');
         $rechazar(['estado' => 'pendiente'])->assertStatus(422)->assertJsonValidationErrors('estado');
-        $rechazar(['estado' => 'rechazado', 'motivo' => 'La partida no es legible.'])->assertOk()->assertJsonPath('matricula.estado', 'rechazado');
+        $this->como($this->a)->putJson("/api/matriculas/{$id}/estado", ['estado' => 'rechazado'])->assertForbidden();
+        $rechazar(['estado' => 'rechazado'])->assertOk()->assertJsonPath('matricula.estado', 'rechazado');
         $rechazar(['estado' => 'aprobado'])->assertStatus(409);
 
-        $aviso = $this->a->notifications()->first();
-        $this->assertSame(MatriculaRechazada::class, $aviso->type);
-        $this->assertSame('La partida no es legible.', $aviso->data['motivo']);
-        $this->como($this->a)->getJson("/api/matriculas/{$id}")->assertJsonPath('motivo_rechazo', 'La partida no es legible.');
+        $this->como($this->a)->getJson("/api/matriculas/{$id}")->assertJsonMissingPath('motivo_rechazo');
         $this->como($this->a)->getJson('/api/matriculas?estado=rechazado')->assertJsonCount(1, 'matriculas')
             ->assertJsonPath('resumen.rechazado', 1)->assertJsonPath('resumen.pendiente', 0);
     }
@@ -426,8 +444,11 @@ class MatriculaTest extends TestCase
         Storage::disk('matriculas')->assertMissing($anterior);
         Storage::disk('matriculas')->assertExists($nueva);
 
-        // Cambiar a otra sección del mismo año revisa el cupo; de otro grado, la promoción
-        $this->como($this->a)->putJson("/api/matriculas/{$id}", ['seccion_id' => $this->segundoA->id])->assertOk();
+        // La sección solo la asigna la dirección (revisa cupo y promoción)
+        $this->como($this->a)->putJson("/api/matriculas/{$id}", ['seccion_id' => $this->segundoA->id])->assertStatus(422)
+            ->assertJsonValidationErrors('seccion_id');
+        $this->como($this->director)->putJson("/api/matriculas/{$id}", ['seccion_id' => $this->segundoA->id])->assertOk()
+            ->assertJsonPath('matricula.seccion_id', $this->segundoA->id);
         $this->como($this->b)->putJson("/api/matriculas/{$id}", ['enfermedad_id' => null])->assertNotFound();
 
         // Aprobada: el encargado ya no edita ni cancela (D-M7)
@@ -484,24 +505,11 @@ class MatriculaTest extends TestCase
         $this->como($this->a)->getJson("/api/matriculas/{$id}")->assertJsonMissingPath('foto')->assertJsonMissingPath('documento');
     }
 
-    public function test_director_cambia_la_seccion_del_mismo_grado(): void
-    {
-        $id = $this->solicitar($this->hijoDeA())->json('matricula.id');
-        $this->aprobar($id)->assertOk();
-        $primeroB = $this->seccion($this->primero, 'B');
-
-        $this->como($this->a)->putJson("/api/matriculas/{$id}/seccion", ['seccion_id' => $primeroB->id])->assertForbidden();
-        $this->como($this->director)->putJson("/api/matriculas/{$id}/seccion", ['seccion_id' => $this->segundoA->id])->assertStatus(422)
-            ->assertJsonPath('errors.seccion_id.0', 'La nueva sección debe ser del mismo grado.');
-        $this->como($this->director)->putJson("/api/matriculas/{$id}/seccion", ['seccion_id' => $primeroB->id])->assertOk()
-            ->assertJsonPath('matricula.seccion_id', $primeroB->id);
-    }
-
     public function test_listado_con_filtros(): void
     {
         $luis = $this->hijoDeA(['nombre' => 'Luis Pérez', 'nie' => '1234567']);
         $this->solicitar($luis);
-        $this->solicitar($this->hijoDeA(['nombre' => 'Ana Ruiz']), ['seccion_id' => $this->segundoA->id]);
+        $this->solicitar($this->hijoDeA(['nombre' => 'Ana Ruiz']), ['seccion_id' => $this->segundoA->id], $this->director);
 
         $this->como($this->director)->getJson('/api/matriculas?q=Luis')->assertJsonCount(1, 'matriculas')->assertJsonPath('matriculas.0.estudiante.nombre', 'Luis Pérez');
         $this->como($this->director)->getJson('/api/matriculas?q=1234')->assertJsonCount(1, 'matriculas');
@@ -509,6 +517,76 @@ class MatriculaTest extends TestCase
         $this->como($this->director)->getJson('/api/matriculas?estado=pendiente')->assertJsonCount(2, 'matriculas')->assertJsonPath('resumen.pendiente', 2);
         $this->como($this->director)->getJson('/api/matriculas?estado=otro')->assertStatus(422);
         $this->como($this->b)->getJson('/api/matriculas')->assertJsonCount(0, 'matriculas');
+    }
+
+    // ------------------------------------------------------ NIE y secciones
+
+    public function test_nie_segun_tipo_de_ingreso_y_traslado(): void
+    {
+        $sinNie = $this->hijoDeA(['nie' => null]);
+        $otro = $this->hijoDeA(['nie' => '7654321']);
+        $trasladado = ['es_trasladado' => 1];
+
+        // Trasladado (o Reingreso): el encargado lo ingresa, obligatorio, solo números y único
+        $this->solicitar($sinNie, $trasladado)->assertStatus(422)->assertJsonPath('errors.nie.0', 'El NIE del estudiante es obligatorio.');
+        $this->solicitar($sinNie, $trasladado + ['nie' => '12AB'])->assertStatus(422)->assertJsonPath('errors.nie.0', 'El NIE debe tener solo números (hasta 10 dígitos).');
+        $this->solicitar($sinNie, $trasladado + ['nie' => '7654321'])->assertStatus(422)->assertJsonPath('errors.nie.0', 'El NIE ya está registrado; contacte a la dirección.');
+        $id = $this->solicitar($sinNie, $trasladado + ['nie' => '1234567'])->assertCreated()->json('matricula.id');
+        $this->assertSame('1234567', $sinNie->fresh()->nie);
+        $this->como($this->a)->putJson("/api/matriculas/{$id}", ['nie' => '1234568'])->assertOk();
+        $this->assertSame('1234568', $sinNie->fresh()->nie);
+        $this->como($this->a)->putJson("/api/matriculas/{$id}", ['nie' => $otro->nie])->assertStatus(422)->assertJsonValidationErrors('nie');
+
+        // Nuevo ingreso sin traslado: el encargado no puede ingresarlo
+        $nuevo = $this->hijoDeA(['nie' => null]);
+        $this->solicitar($nuevo, ['nie' => '5555555'])->assertStatus(422)
+            ->assertJsonPath('errors.nie.0', 'En Nuevo ingreso sin traslado el NIE lo registra la dirección al aprobar la matrícula.');
+        $pendiente = $this->solicitar($nuevo)->assertCreated()->json('matricula.id');
+        $this->assertNull($nuevo->fresh()->nie);
+        $this->como($this->a)->putJson("/api/matriculas/{$pendiente}", ['nie' => '5555555'])->assertStatus(422)->assertJsonValidationErrors('nie');
+
+        // La dirección lo agrega al aprobar y se guarda en estudiantes
+        $this->aprobar($pendiente, ['seccion_id' => $this->primeroA->id])->assertStatus(422)
+            ->assertJsonPath('errors.nie.0', 'Ingrese el NIE del estudiante para aprobar la matrícula.');
+        $this->aprobar($pendiente, ['seccion_id' => $this->primeroA->id, 'nie' => $otro->nie])->assertStatus(422)->assertJsonValidationErrors('nie');
+        $this->aprobar($pendiente, ['seccion_id' => $this->primeroA->id, 'nie' => '5555555'])->assertOk();
+        $this->assertSame('5555555', $nuevo->fresh()->nie);
+    }
+
+    public function test_secciones_para_asignar_sin_llenas_ni_turnos_vacios(): void
+    {
+        $id = $this->solicitar($this->hijoDeA())->assertCreated()->json('matricula.id');
+        $vespertina = Seccion::create(['nombre' => 'B', 'capacidad' => 1, 'turno' => 'vespertino', 'anio_lectivo_id' => $this->anio->id,
+            'grado_id' => $this->primero->id, 'profesor_id' => $this->profesor]);
+        $this->segundoA->update(['capacidad' => 1]);
+
+        // Nuevo ingreso: todos los grados con secciones con cupo, cada uno con sus turnos
+        $this->como($this->director)->getJson("/api/matriculas/{$id}/secciones")->assertOk()
+            ->assertJsonCount(2, 'grados')
+            ->assertJsonPath('grados.0.turnos.0.turno', 'matutino')
+            ->assertJsonPath('grados.0.turnos.1.turno', 'vespertino')
+            ->assertJsonPath('grados.0.turnos.1.secciones.0.cupos_disponibles', 1);
+
+        // Se llenan la vespertina de Primer grado y la única de Segundo grado: desaparecen ese turno y ese grado
+        $this->matriculaDe($this->hijoDeA(), $this->catalogos, ['estado' => 'aprobado', 'anio_lectivo_id' => $this->anio->id, 'seccion_id' => $vespertina->id, 'especialidad_id' => null]);
+        $this->matriculaDe($this->hijoDeA(), $this->catalogos, ['estado' => 'aprobado', 'anio_lectivo_id' => $this->anio->id, 'seccion_id' => $this->segundoA->id, 'especialidad_id' => null]);
+        $this->como($this->director)->getJson("/api/matriculas/{$id}/secciones")->assertOk()
+            ->assertJsonCount(1, 'grados')
+            ->assertJsonPath('grados.0.id', $this->primero->id)
+            ->assertJsonCount(1, 'grados.0.turnos')
+            ->assertJsonPath('grados.0.turnos.0.turno', 'matutino')
+            ->assertJsonPath('grados.0.turnos.0.secciones.0.id', $this->primeroA->id);
+        $this->aprobar($id, ['seccion_id' => $vespertina->id])->assertStatus(422)->assertJsonValidationErrors('seccion_id');
+
+        // El formulario del encargado muestra por grado solo los turnos con cupo
+        $hijo = Matricula::find($id)->estudiante_id;
+        $grados = collect($this->como($this->a)->getJson("/api/matriculas/estudiantes/{$hijo}/opciones")->assertOk()->json('grados'))->keyBy('id');
+        $this->assertSame(['matutino'], $grados[$this->primero->id]['turnos']);
+        $this->assertSame('Educación Básica', $grados[$this->primero->id]['nivel']);
+        $this->assertSame([], $grados[$this->segundo->id]['turnos']);
+
+        // Solo la dirección consulta
+        $this->como($this->a)->getJson("/api/matriculas/{$id}/secciones")->assertForbidden();
     }
 
     // ------------------------------------------------- diagnóstico y seeder
@@ -540,17 +618,14 @@ class MatriculaTest extends TestCase
         Artisan::call('siga:diagnostico-matriculas');
         $salida = Artisan::output();
         $this->assertStringContainsString('caso(s) para revisar manualmente. No se modificó nada.', $salida);
-        $this->assertStringContainsString('Informativo: matrículas pendientes sin sección (la dirección la asigna al aprobar): 1', $salida);
+        $this->assertStringContainsString('Informativo: matrículas pendientes sin sección (la dirección la asigna al aprobar): 2', $salida);
         $this->assertEquals($antes, DB::table('matriculas')->get()->toArray());
     }
 
     public function test_seeder_de_matriculas_es_reproducible(): void
     {
-        // Libera los DUI de las cuentas de prueba; usa el año, las secciones y los planes de esta prueba
-        $dui = \Database\Factories\UserFactory::duiValido();
-        $this->a->update(['dui' => $dui]);
-        $this->padreA->update(['dui' => $dui]);
-        $this->b->update(['dui' => \Database\Factories\UserFactory::duiValido()]);
+        // Libera el DUI del padre de prueba; usa el año, las secciones y los planes de esta prueba
+        $this->padreA->update(['dui' => \Database\Factories\UserFactory::duiValido()]);
         $this->seed([UsuarioPruebaSeeder::class, ProfesorPruebaSeeder::class, SeccionPruebaSeeder::class, AsignacionPruebaSeeder::class, GeografiaElSalvadorSeeder::class, FamiliaPruebaSeeder::class]);
 
         $this->seed(MatriculaPruebaSeeder::class);

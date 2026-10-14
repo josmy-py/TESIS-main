@@ -24,6 +24,11 @@ class MigracionM6Test extends TestCase
 
     private array $catalogos;
 
+    private User $encargado;
+
+    /** Migraciones posteriores a 000011 (usuarios/roles y profesores como el diagrama). */
+    private const POSTERIORES = 4;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -32,6 +37,8 @@ class MigracionM6Test extends TestCase
         Storage::fake('matriculas');
         $this->sembrarRoles();
         $this->catalogos = $this->catalogosBasicos();
+        // Se crea antes de revertir: con el esquema anterior la cuenta no tiene rol_id
+        $this->encargado = $this->usuario(User::ROL_ENCARGADO, ['email' => 'enc@prueba.test']);
     }
 
     protected function tearDown(): void
@@ -42,14 +49,12 @@ class MigracionM6Test extends TestCase
 
     private function matricula(array $atributos): int
     {
-        $encargado = User::where('email', 'enc@prueba.test')->first() ?? $this->usuario(User::ROL_ENCARGADO, ['email' => 'enc@prueba.test']);
-
-        return $this->matriculaDe($this->estudianteDe($encargado, $this->catalogos['distrito']), $this->catalogos, $atributos);
+        return $this->matriculaDe($this->estudianteDe($this->encargado, $this->catalogos['distrito']), $this->catalogos, $atributos);
     }
 
     public function test_archivos_publicos_pasan_al_disco_privado_y_vuelven(): void
     {
-        $this->assertSame(0, Artisan::call('migrate:rollback', ['--step' => 1]));
+        $this->assertSame(0, Artisan::call('migrate:rollback', ['--step' => 1 + self::POSTERIORES]));
 
         Storage::disk('public')->put('foto/a.jpg', 'foto A');
         Storage::disk('public')->put('documentos/b.pdf', 'partida B');
@@ -70,7 +75,7 @@ class MigracionM6Test extends TestCase
         $this->assertSame($faltante, $bitacora['faltantes'][0]['matricula_id']);
 
         // Revertir devuelve archivos y rutas
-        $this->assertSame(0, Artisan::call('migrate:rollback', ['--step' => 1]));
+        $this->assertSame(0, Artisan::call('migrate:rollback', ['--step' => 1 + self::POSTERIORES]));
         $fila = DB::table('matriculas')->find($conArchivos);
         $this->assertSame(['/storage/foto/a.jpg', '/storage/documentos/b.pdf'], [$fila->foto, $fila->documento]);
         $this->assertSame('foto A', Storage::disk('public')->get('foto/a.jpg'));
@@ -83,7 +88,7 @@ class MigracionM6Test extends TestCase
         $this->matricula([]);
 
         try {
-            Artisan::call('migrate:rollback', ['--step' => 2]);
+            Artisan::call('migrate:rollback', ['--step' => 2 + self::POSTERIORES]);
             $this->fail('Debió detenerse');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('1 matrícula(s) no tienen especialidad o enfermedad', $e->getMessage());
@@ -101,7 +106,7 @@ class MigracionM6Test extends TestCase
         $this->assertSame('{"motivo":"Prueba"}', $respaldo['notifications'][0]['data']);
 
         $this->assertSame(0, Artisan::call('migrate'));
-        $this->assertTrue(Schema::hasTable('notifications'));
+        $this->assertFalse(Schema::hasTable('notifications'), 'notifications no está en el diagrama');
         $this->assertTrue(collect(Schema::getColumns('matriculas'))->firstWhere('name', 'enfermedad_id')['nullable']);
     }
 }

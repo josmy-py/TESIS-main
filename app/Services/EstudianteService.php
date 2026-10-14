@@ -23,13 +23,14 @@ class EstudianteService
 {
     public const DUPLICADO = 'El estudiante ya está registrado; contacte a la dirección.';
 
-    /** Filtros: q (nombre o NIE), estado y user_id (solo director). */
+    /** Filtros: q (nombre o NIE), estado, con_matricula_aprobada y user_id (solo director). */
     public function listar(array $filtros = [], ?int $propietarioId = null)
     {
         return Estudiante::query()
             ->when($propietarioId, fn ($q) => $q->where('user_id', $propietarioId))
             ->when(! $propietarioId && ! empty($filtros['user_id']), fn ($q) => $q->where('user_id', $filtros['user_id']))
             ->when($filtros['estado'] ?? null, fn ($q, $estado) => $q->where('estado', $estado))
+            ->when(! empty($filtros['con_matricula_aprobada']), fn ($q) => $q->whereHas('matriculas', fn ($m) => $m->where('estado', 'aprobado')))
             ->when(trim($filtros['q'] ?? '') !== '', function ($q) use ($filtros) {
                 $texto = trim($filtros['q']);
                 $q->where(fn ($w) => $w->where('nombre', 'like', "%{$texto}%")->orWhere('nie', 'like', "{$texto}%"));
@@ -43,7 +44,7 @@ class EstudianteService
                 'ultimaMatricula.seccion:id,nombre,grado_id',
                 'ultimaMatricula.seccion.grado:id,nombre',
             ])
-            ->when(! $propietarioId, fn ($q) => $q->with('user:id,nombre,email'))
+            ->when(! $propietarioId, fn ($q) => $q->with('user:id,email'))
             ->withCount(['padres', 'matriculas'])
             ->orderBy('nombre')
             ->get();
@@ -66,7 +67,7 @@ class EstudianteService
         ]);
 
         if (! $propietarioId) {
-            $estudiante->load('user:id,nombre,email,dui');
+            $estudiante->load('user:id,email');
         }
 
         return [
@@ -74,7 +75,6 @@ class EstudianteService
             'permisos' => [
                 'editar_nie' => ! $propietarioId || ! $this->tieneMatriculaAprobada($estudiante),
                 'eliminar' => $estudiante->matriculas->isEmpty(),
-                'cambiar_cuenta' => ! $propietarioId,
             ],
         ];
     }
@@ -137,32 +137,6 @@ class EstudianteService
         });
 
         $this->bitacora('estudiante_eliminado', $autor, ['estudiante_id' => $estudiante->id, 'nombre' => $estudiante->nombre, 'nie' => $estudiante->nie]);
-    }
-
-    /** D-E3: el director pasa el estudiante a otra cuenta ENCARGADO activa. */
-    public function cambiarCuenta($id, int $userId, User $autor): Estudiante
-    {
-        $estudiante = Estudiante::with('user:id,nombre,email')->findOrFail($id);
-        $nueva = User::find($userId);
-
-        if (! $nueva || ! $nueva->hasRole(User::ROL_ENCARGADO) || $nueva->estado !== User::ESTADO_ACTIVO) {
-            throw ValidationException::withMessages(['user_id' => 'La nueva cuenta debe ser una cuenta ENCARGADO activa.']);
-        }
-        if ((int) $estudiante->user_id === $nueva->id) {
-            throw ValidationException::withMessages(['user_id' => 'El estudiante ya pertenece a esa cuenta.']);
-        }
-
-        $anterior = $estudiante->user;
-        $estudiante->update(['user_id' => $nueva->id]);
-
-        $this->bitacora('cambio_cuenta', $autor, [
-            'estudiante_id' => $estudiante->id,
-            'estudiante' => $estudiante->nombre,
-            'cuenta_anterior' => $anterior ? "{$anterior->id} {$anterior->email}" : null,
-            'cuenta_nueva' => "{$nueva->id} {$nueva->email}",
-        ]);
-
-        return $estudiante->fresh()->load('user:id,nombre,email');
     }
 
     public function propio($id, ?int $propietarioId = null): Estudiante

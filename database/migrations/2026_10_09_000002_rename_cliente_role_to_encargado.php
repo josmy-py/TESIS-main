@@ -65,6 +65,9 @@ return new class extends Migration
             DB::table($tablaRoles)->where('id', $rolOrigen->id)->delete();
         }
 
-        app(PermissionRegistrar::class)->forgetCachedPermissions();
+        // El paquete de roles se quitó después (alineación con el diagrama)
+        if (class_exists(PermissionRegistrar::class)) {
+            app(PermissionRegistrar::class)->forgetCachedPermissions();
+        }
     }
 };

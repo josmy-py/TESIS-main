@@ -41,7 +41,7 @@ class CatalogosApoyoTest extends TestCase
     public function test_especialidad_con_matriculas_o_planes_no_se_elimina(): void
     {
         $catalogos = $this->catalogosBasicos();
-        $encargado = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000001-8']);
+        $encargado = $this->usuario(User::ROL_ENCARGADO);
         $this->matriculaDe($this->estudianteDe($encargado, $catalogos['distrito']), $catalogos);
 
         $this->como($this->director)->deleteJson("/api/especialidades/{$catalogos['especialidad']}")->assertStatus(409);
@@ -74,7 +74,7 @@ class CatalogosApoyoTest extends TestCase
     public function test_discapacidad_en_expedientes_devuelve_conflicto_y_no_borra_nada(): void
     {
         $catalogos = $this->catalogosBasicos();
-        $encargado = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000001-8']);
+        $encargado = $this->usuario(User::ROL_ENCARGADO);
         $matricula = $this->matriculaDe($this->estudianteDe($encargado, $catalogos['distrito']), $catalogos);
         $discapacidad = Discapacidad::create(['nombre' => 'Auditiva']);
         DB::table('expedientes')->insert(['discapacidad_id' => $discapacidad->id, 'matricula_id' => $matricula]);
@@ -137,7 +137,7 @@ class CatalogosApoyoTest extends TestCase
     public function test_enfermedad_en_matriculas_devuelve_conflicto_y_no_toca_la_matricula(): void
     {
         $catalogos = $this->catalogosBasicos();
-        $encargado = $this->usuario(User::ROL_ENCARGADO, ['dui' => '00000001-8']);
+        $encargado = $this->usuario(User::ROL_ENCARGADO);
         $matricula = $this->matriculaDe($this->estudianteDe($encargado, $catalogos['distrito']), $catalogos);
         $antes = (array) DB::table('matriculas')->find($matricula);
 
@@ -162,8 +162,6 @@ class CatalogosApoyoTest extends TestCase
         }
 
         $this->sinSesion()->getJson('/api/enfermedades')->assertStatus(401);
-        $inactivo = $this->usuario(User::ROL_DIRECTOR, [], User::ESTADO_INACTIVO);
-        $this->como($inactivo)->getJson('/api/enfermedades')->assertStatus(403);
         $this->assertSame('Epilepsia', $enfermedad->fresh()->nombre);
     }
 

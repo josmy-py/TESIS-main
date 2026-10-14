@@ -18,17 +18,9 @@ trait DatosM1
         $this->seed(RoleSeeder::class);
     }
 
-    protected function usuario(string $rol, array $atributos = [], ?string $estado = null): User
+    protected function usuario(string $rol, array $atributos = []): User
     {
-        $factory = User::factory()->conRol($rol);
-
-        if ($estado === User::ESTADO_PENDIENTE) {
-            $factory = $factory->pendiente();
-        } elseif ($estado === User::ESTADO_INACTIVO) {
-            $factory = $factory->inactivo();
-        }
-
-        return $factory->create($atributos);
+        return User::factory()->conRol($rol)->create($atributos);
     }
 
     protected function tokenDe(User $user): string
@@ -72,7 +64,7 @@ trait DatosM1
     protected function estudianteDe(User $user, int $distritoId, array $atributos = []): Estudiante
     {
         return Estudiante::create(array_merge([
-            'nombre' => 'Estudiante de '.$user->nombre,
+            'nombre' => 'Estudiante de '.$user->email,
             'fecha_nacimiento' => '2012-05-10',
             'genero' => 'Femenino',
             'distrito_id' => $distritoId,

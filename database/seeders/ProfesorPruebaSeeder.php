@@ -23,19 +23,17 @@ class ProfesorPruebaSeeder extends Seeder
 
         $user = User::where('email', 'docente@siga.test')->first();
 
-        if (! $user || $user->profesor()->exists() || Profesor::where('dui', $user->dui)->exists()) {
+        if (! $user || $user->profesor()->exists() || Profesor::where('dui', '00000001-8')->exists()) {
             return;
         }
 
         Profesor::create([
-            'nombre' => $user->nombre,
-            'dui' => $user->dui,
+            'nombre' => 'Docente de Prueba',
+            'dui' => '00000001-8',
             'fecha_nacimiento' => '1988-03-15',
             'codigo' => app(ProfesorService::class)->siguienteCodigo(),
             'telefono' => '7000-0001',
             'direccion' => 'Dirección de prueba',
-            'especialidad' => 'Matemática',
-            'fecha_contratacion' => '2020-01-15',
             'user_id' => $user->id,
         ]);
     }
