@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Models\Estudiante;
+use App\Models\Padre;
 use App\Models\User;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -97,10 +99,41 @@ class EstudianteService
         ]);
     }
 
+    /**
+     * Registra al estudiante y, en la misma transacción, crea su relación con
+     * el padre y/o la madre ya registrados (parientes), buscados por su DUI.
+     * El encargado registra primero a los padres; si un DUI no está registrado
+     * o es de otra familia, no se guarda nada.
+     *
+     * @param  array<int, array{dui: string, parentesco: string}>  $padres
+     */
+    public function crearConPadres(array $data, array $padres, ?int $propietarioId): Estudiante
+    {
+        return DB::transaction(function () use ($data, $padres, $propietarioId) {
+            $estudiante = $this->crear($data);
+            $parientes = app(ParientesService::class);
+
+            foreach (array_values($padres) as $i => $datos) {
+                $padre = Padre::whereIn('dui', app(PadreService::class)->variantes($datos['dui']))->first();
+                try {
+                    if (! $padre) {
+                        throw new ModelNotFoundException;
+                    }
+                    $parientes->relacionarPadre($estudiante->id, $padre->id, $datos['parentesco'], $propietarioId);
+                } catch (ModelNotFoundException) {
+                    throw ValidationException::withMessages(["padres.{$i}.dui" => 'No hay un padre o una madre registrados con ese DUI. Regístrelo primero en «Registro de Padres».']);
+                }
+            }
+
+            return $estudiante->load('padres');
+        });
+    }
+
     public function actualizar($id, array $data, ?int $propietarioId = null)
     {
         $estudiante = $this->propio($id, $propietarioId);
-        $nie = $data['nie'] ?? null;
+        // El NIE solo cambia si se envía (el formulario del estudiante ya no lo pide)
+        $nie = array_key_exists('nie', $data) ? $data['nie'] : $estudiante->nie;
 
         // D-E1: con matrícula aprobada, el NIE solo lo cambia la dirección
         if ($propietarioId && $nie !== $estudiante->nie && $this->tieneMatriculaAprobada($estudiante)) {

@@ -46,7 +46,7 @@ class PropiedadDatosTest extends TestCase
         $this->assertSame($this->b->id, $deB->fresh()->user_id);
 
         // El estudiante creado queda a nombre de la cuenta autenticada
-        $this->como($this->a)->postJson('/api/estudiantes', array_merge($datos, ['nombre' => 'Nuevo de A', 'user_id' => $this->b->id]))->assertCreated();
+        $this->como($this->a)->postJson('/api/estudiantes', array_merge($datos, ['nombre' => 'Nuevo de A', 'user_id' => $this->b->id, 'padres' => [$this->padreRegistrado()]]))->assertCreated();
         $this->assertDatabaseHas('estudiantes', ['nombre' => 'Nuevo de A', 'user_id' => $this->a->id]);
     }
 

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AnioLectivo;
 use App\Models\Encargado;
+use App\Models\Enfermedad;
 use App\Models\Estudiante;
 use App\Models\Matricula;
 use App\Models\Padre;
@@ -146,13 +147,20 @@ class MatriculaService
         try {
             return DB::transaction(function () use ($datos, $foto, $documento, $cuenta, $propietarioId, $anio, &$guardados) {
                 $estudiante = $this->estudiantes($propietarioId)->lockForUpdate()->findOrFail($datos['estudiante_id']);
-                // La sección solo la indica la dirección; el encargado la deja vacía
+                // La sección la indica la dirección. El encargado indica grado y turno: queda
+                // una sección de ese grado y turno con cupo, que la dirección confirma o cambia al aprobar
                 $seccion = ! empty($datos['seccion_id']) ? $this->seccionDelAnio($datos['seccion_id'], $anio) : null;
 
                 $this->sinOtraVigente($estudiante, $anio);
-                $especialidad = $seccion
-                    ? $this->validarGradoYPlan($estudiante, $anio, $seccion, $datos['ingreso'], $this->especialidadPedida($datos))
-                    : $this->validarPromocion($estudiante, $anio, $datos['ingreso'], $this->especialidadPedida($datos))['especialidad'];
+                if ($seccion) {
+                    $especialidad = $this->validarGradoYPlan($estudiante, $anio, $seccion, $datos['ingreso'], $this->especialidadPedida($datos));
+                } else {
+                    $promocion = $this->validarPromocion($estudiante, $anio, $datos['ingreso'], $this->especialidadPedida($datos));
+                    $especialidad = $promocion['especialidad'];
+                    if (! empty($datos['grado_id'])) {
+                        $seccion = $this->seccionSolicitada((int) $datos['grado_id'], $datos['turno'], $anio, $promocion['opciones']);
+                    }
+                }
                 $encargadoId = $this->validarResponsable($estudiante, $datos['encargado_id'] ?? null, $propietarioId);
                 if ($seccion) {
                     $this->validarCupo($seccion);
@@ -172,7 +180,7 @@ class MatriculaService
                     'documento' => $rutaDocumento,
                     'es_trasladado' => (bool) $datos['es_trasladado'],
                     'estudiante_id' => $estudiante->id,
-                    'enfermedad_id' => $datos['enfermedad_id'] ?? null,
+                    'enfermedad_id' => $this->enfermedadConMedicamento($datos['enfermedad_id'] ?? null, $datos['medicamento'] ?? null),
                     'seccion_id' => $seccion?->id,
                     'especialidad_id' => $especialidad,
                     'encargado_id' => $encargadoId,
@@ -592,6 +600,62 @@ class MatriculaService
         }
 
         return $seccion;
+    }
+
+    /**
+     * Grado y turno que pide el encargado: el grado debe ser el que permite la
+     * promoción y se toma la sección de ese grado y turno con más cupos.
+     */
+    private function seccionSolicitada(int $gradoId, string $turno, AnioLectivo $anio, array $opciones): Seccion
+    {
+        if (! in_array($gradoId, $opciones['grados'], true)) {
+            throw ValidationException::withMessages(['grado_id' => $opciones['ingreso'] === 'Reingreso'
+                ? $opciones['mensaje']
+                : 'El grado no pertenece al catálogo oficial de grados.']);
+        }
+
+        $seccion = Seccion::with('grado')->lockForUpdate()
+            ->where('grado_id', $gradoId)->where('turno', $turno)->where('anio_lectivo_id', $anio->id)
+            ->withCount(['matriculas as ocupados' => fn ($q) => $q->where('anio_lectivo_id', $anio->id)->whereIn('estado', self::VIGENTES)])
+            ->orderBy('nombre')
+            ->get()
+            ->filter(fn (Seccion $s) => $s->ocupados < $s->capacidad)
+            ->sortByDesc(fn (Seccion $s) => $s->capacidad - $s->ocupados)
+            ->first();
+
+        if (! $seccion) {
+            $nombreTurno = $turno === 'matutino' ? 'mañana' : 'tarde';
+            throw ValidationException::withMessages(['turno' => "No hay secciones con cupo de este grado en el turno de la {$nombreTurno} para {$anio->nombre}."]);
+        }
+
+        return $seccion;
+    }
+
+    /**
+     * El medicamento es parte de la enfermedad (tabla enfermedades: nombre único y
+     * medicamento). Si el encargado escribe otro medicamento que el del catálogo,
+     * se usa (o se crea) la enfermedad «Nombre (medicamento)» con ese medicamento.
+     */
+    private function enfermedadConMedicamento($enfermedadId, ?string $medicamento): ?int
+    {
+        $medicamento = trim(preg_replace('/\s+/u', ' ', (string) $medicamento));
+        if (! $enfermedadId) {
+            if ($medicamento !== '') {
+                throw ValidationException::withMessages(['enfermedad_id' => 'Seleccione la enfermedad a la que corresponde el medicamento.']);
+            }
+
+            return null;
+        }
+
+        $enfermedad = Enfermedad::findOrFail($enfermedadId);
+        if ($medicamento === '' || mb_strtolower($medicamento) === mb_strtolower($enfermedad->medicamento)) {
+            return $enfermedad->id;
+        }
+
+        $base = preg_replace('/\s*\(.*\)$/u', '', $enfermedad->nombre);
+        $nombre = mb_substr("{$base} ({$medicamento})", 0, 50);
+
+        return Enfermedad::firstOrCreate(['nombre' => $nombre], ['medicamento' => $medicamento])->id;
     }
 
     /** Pág. 57: sin otra matrícula pendiente o aprobada en el mismo año. */

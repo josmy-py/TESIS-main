@@ -296,11 +296,11 @@ class AlineacionSinPerdidaTest extends TestCase
         $this->como($director)->getJson('/api/profesores?buscar=PROF-001')->assertOk()->assertJsonFragment(['codigo' => 'PROF-001']);
 
         // Familia: el padre vinculado a su estudiante sigue visible para su encargado y no para otro.
-        // Cambio previsto: sin registrado_por, un padre que el encargado registró pero nunca
-        // vinculó a un estudiante solo lo ve el director (el dato queda en el respaldo).
+        // Un padre que aún no tiene estudiantes se encuentra por su DUI para vincularlo
+        // al guardar al estudiante (solo id, nombre y DUI).
         $this->como($encargado)->postJson('/api/padres/buscar-dui', ['dui' => '00000004-2'])->assertOk()->assertJsonPath('encontrado', true);
         $this->como($otro)->postJson('/api/padres/buscar-dui', ['dui' => '00000004-2'])->assertStatus(404);
-        $this->como($encargado)->postJson('/api/padres/buscar-dui', ['dui' => '00000005-0'])->assertStatus(404);
+        $this->como($encargado)->postJson('/api/padres/buscar-dui', ['dui' => '00000005-0'])->assertOk()->assertJsonMissingPath('padre.telefono');
         $this->como($director)->postJson('/api/padres/buscar-dui', ['dui' => '00000005-0'])->assertOk();
         // El diagnóstico se lo señala al director para que lo vincule
         $this->assertSame([$this->ids['padre_libre']], array_column(app(\App\Services\CalendarioService::class)->diagnostico()['padres_sin_estudiantes'], 'id'));

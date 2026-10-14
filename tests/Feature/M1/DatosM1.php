@@ -75,6 +75,15 @@ trait DatosM1
         ], $atributos));
     }
 
+    /** Padre o madre registrado antes que el estudiante (sin vínculos): datos para «padres» al crear al estudiante. */
+    protected function padreRegistrado(string $parentesco = 'Madre'): array
+    {
+        $dui = sprintf('%08d-%d', random_int(1, 99999999), random_int(0, 9));
+        \App\Models\Padre::create(['nombre' => "{$parentesco} Registrada", 'dui' => $dui]);
+
+        return ['dui' => $dui, 'parentesco' => $parentesco];
+    }
+
     protected function matriculaDe(Estudiante $estudiante, array $catalogos, array $atributos = []): int
     {
         return DB::table('matriculas')->insertGetId(array_merge([

@@ -43,6 +43,7 @@ class EstudiantesFamiliaTest extends TestCase
         return array_merge([
             'nombre' => 'Luis Pérez', 'fecha_nacimiento' => '2015-03-10', 'genero' => 'Masculino',
             'distrito_id' => $this->catalogos['distrito'], 'direccion' => 'Calle 1', 'nie' => null,
+            'padres' => [$this->padreRegistrado()],
         ], $cambios);
     }
 
@@ -89,6 +90,30 @@ class EstudiantesFamiliaTest extends TestCase
         $this->como($docente)->getJson('/api/padres')->assertForbidden();
     }
 
+    // Primero se registran los padres; al guardar al estudiante se indican por DUI y se crea la relación
+    public function test_estudiante_se_registra_con_padres_ya_registrados(): void
+    {
+        $sinPadres = $this->datosEstudiante();
+        unset($sinPadres['padres']);
+        $this->como($this->a)->postJson('/api/estudiantes', $sinPadres)->assertStatus(422)->assertJsonValidationErrors('padres');
+        $this->como($this->a)->postJson('/api/estudiantes', $this->datosEstudiante(['padres' => [['dui' => '00016297-5', 'parentesco' => 'Padre']]]))
+            ->assertStatus(422)->assertJsonValidationErrors('padres.0.dui');
+        $this->como($this->a)->postJson('/api/estudiantes', $this->datosEstudiante(['nombre' => 'Luis 2']))
+            ->assertStatus(422)->assertJsonValidationErrors('nombre');
+        $this->assertSame(0, Estudiante::count());
+
+        $padre = $this->padreRegistrado('Padre');
+        $madre = $this->padreRegistrado('Madre');
+        $id = $this->como($this->a)->postJson('/api/estudiantes', $this->datosEstudiante(['padres' => [$padre, $madre]]))
+            ->assertCreated()->json('estudiante.id');
+        $this->assertSame(['Madre', 'Padre'], DB::table('parientes')->where('estudiante_id', $id)->orderBy('parentesco')->pluck('parentesco')->all());
+
+        // Esos padres ya son de la familia de A: B no los usa
+        $this->como($this->b)->postJson('/api/estudiantes', $this->datosEstudiante(['nombre' => 'Otro', 'padres' => [$padre]]))
+            ->assertStatus(422)->assertJsonValidationErrors('padres.0.dui');
+        $this->assertSame(1, Estudiante::count());
+    }
+
     public function test_nie_opcional_numerico_y_unico(): void
     {
         $this->como($this->a)->postJson('/api/estudiantes', $this->datosEstudiante())->assertCreated()->assertJsonPath('estudiante.nie', null);
@@ -104,7 +129,7 @@ class EstudiantesFamiliaTest extends TestCase
     public function test_nie_solo_lo_cambia_la_direccion_despues_de_aprobar_la_matricula(): void
     {
         $estudiante = $this->estudianteDe($this->a, $this->catalogos['distrito'], ['nie' => '1000001']);
-        $datos = $this->datosEstudiante(['nombre' => $estudiante->nombre, 'nie' => '1000002']);
+        $datos = $this->datosEstudiante(['nombre' => 'Estudiante Uno', 'nie' => '1000002']);
 
         // Antes de la aprobación el encargado lo corrige
         $this->matriculaDe($estudiante, $this->catalogos, ['estado' => 'pendiente']);

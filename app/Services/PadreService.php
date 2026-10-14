@@ -106,12 +106,25 @@ class PadreService
     }
 
     /**
-     * Con $propietarioId (cuenta ENCARGADO) solo se encuentra el padre que es
-     * la propia cuenta o que ya está vinculado a uno de sus estudiantes.
+     * Con $propietarioId (cuenta ENCARGADO) se encuentra el padre de su familia
+     * o el que aún no tiene estudiantes (registrado antes que el estudiante).
+     * Al de otra familia no se le encuentra. Del que no es de su familia solo
+     * se devuelve id, nombre y DUI.
      */
     public function buscarPorDui($dui, ?int $propietarioId = null)
     {
-        return $this->visibles($propietarioId)->whereIn('dui', $this->variantes($dui))->first();
+        $padre = Padre::whereIn('dui', $this->variantes($dui))->first();
+        if (! $padre || ! $propietarioId) {
+            return $padre;
+        }
+        if ($this->visibles($propietarioId)->whereKey($padre->id)->exists()) {
+            return $padre;
+        }
+        if (! $this->parientes->padrePermitido($padre, $propietarioId)) {
+            return null;
+        }
+
+        return $padre->only(['id', 'nombre', 'dui']);
     }
 
     public function puedeEditar(Padre $padre, ?int $propietarioId): bool

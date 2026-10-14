@@ -14,8 +14,9 @@ use Illuminate\Validation\ValidationException;
 /**
  * Vínculos padre/madre ↔ estudiante (tabla parientes, D3).
  * - Un estudiante tiene como máximo un "Padre" y una "Madre", sin vínculos repetidos.
- * - D-E4: el encargado solo vincula a personas de su familia (su propia cuenta o
- *   ya vinculadas a sus estudiantes). Si la persona pertenece a otra familia, el
+ * - D-E4: el encargado solo vincula a personas de su familia (su propia cuenta,
+ *   ya vinculadas a sus estudiantes o recién registradas sin estudiantes, que
+ *   encuentra por su DUI). Si la persona pertenece a otra familia, el
  *   vínculo lo hace la dirección; la respuesta no revela datos de esa persona.
  * - D-E7: no se desvincula a la persona de la cuenta responsable del estudiante
  *   ni al último padre de un estudiante con matrícula vigente sin otro encargado.
@@ -123,14 +124,15 @@ class ParientesService
             ->findOrFail($id);
     }
 
-    private function padrePermitido(Padre $padre, int $propietarioId): bool
+    public function padrePermitido(Padre $padre, int $propietarioId): bool
     {
         if ($padre->user_id !== null) {
             return (int) $padre->user_id === $propietarioId;
         }
 
-        // Sin cuenta propia: solo si ya comparte un estudiante con esta cuenta
-        return $padre->estudiantes()->where('estudiantes.user_id', $propietarioId)->exists();
+        // Sin cuenta propia: si ya comparte un estudiante con esta cuenta, o si aún no
+        // tiene ningún estudiante (se registró primero y se busca por su DUI)
+        return ! $padre->estudiantes()->where('estudiantes.user_id', '!=', $propietarioId)->exists();
     }
 
     /** Matrícula pendiente o aprobada de un año no cerrado cuyo responsable son los padres. */

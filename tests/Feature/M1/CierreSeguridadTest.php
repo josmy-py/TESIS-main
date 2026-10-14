@@ -44,14 +44,15 @@ class CierreSeguridadTest extends TestCase
         $deA = $this->estudianteDe($this->a, $this->catalogos['distrito']);
         $deB = $this->estudianteDe($this->b, $this->catalogos['distrito']);
 
-        // Sin estudiante no se registra (no quedan padres sin dueño)
-        $this->como($this->a)->postJson('/api/padres', ['nombre' => 'Madre de A', 'dui' => '00000003-4', 'es_encargado' => false])
-            ->assertStatus(422)->assertJsonValidationErrors('estudiante_id');
+        // Sin estudiante se registra sin vínculo (el vínculo se crea al guardar al estudiante)
+        $libre = $this->como($this->a)->postJson('/api/padres', ['nombre' => 'Padre de A', 'dui' => '00016297-5', 'es_encargado' => false])
+            ->assertCreated()->json('padre.id');
+        $this->assertSame(0, DB::table('parientes')->where('padre_id', $libre)->count());
 
         // Con un estudiante ajeno responde como no encontrado
         $this->como($this->a)->postJson('/api/padres', ['nombre' => 'Madre de A', 'dui' => '00000003-4', 'es_encargado' => false,
             'estudiante_id' => $deB->id, 'parentesco' => 'Madre'])->assertNotFound();
-        $this->assertSame(0, Padre::count());
+        $this->assertSame(1, Padre::count());
 
         $madre = $this->como($this->a)->postJson('/api/padres', ['nombre' => 'Madre de A', 'dui' => '00000003-4', 'es_encargado' => false,
             'estudiante_id' => $deA->id, 'parentesco' => 'Madre'])->assertCreated()->json('padre.id');
@@ -84,28 +85,25 @@ class CierreSeguridadTest extends TestCase
         $this->assertSame('Madre', Padre::find($madre)->nombre);
     }
 
-    // Padres sin cuenta ni estudiantes (heredados o registrados por el director): se deniega a todo encargado
-    public function test_padre_sin_estudiantes_solo_lo_vincula_el_director(): void
+    // Padre sin cuenta ni estudiantes (registrado antes que el estudiante): se encuentra por su DUI,
+    // solo con id, nombre y DUI, hasta que se vincula; después solo lo usa esa familia
+    public function test_padre_sin_estudiantes_se_encuentra_por_dui_hasta_vincularse(): void
     {
         $deA = $this->estudianteDe($this->a, $this->catalogos['distrito']);
         $deB = $this->estudianteDe($this->b, $this->catalogos['distrito']);
-        $director = $this->usuario(User::ROL_DIRECTOR);
 
-        // El director sí puede registrar un padre sin vincular
-        $sinVincular = $this->como($director)->postJson('/api/padres', ['nombre' => 'Padre', 'dui' => '00016297-5', 'es_encargado' => false])
+        $sinVincular = $this->como($this->a)->postJson('/api/padres', ['nombre' => 'Padre', 'dui' => '00016297-5', 'telefono' => '7000-0000', 'es_encargado' => false])
             ->assertCreated()->json('padre.id');
 
-        foreach ([[$this->a, $deA], [$this->b, $deB]] as [$cuenta, $estudiante]) {
-            $this->como($cuenta)->postJson('/api/padres/buscar-dui', ['dui' => '00016297-5'])->assertNotFound();
-            $this->vincular($cuenta, $estudiante->id, $sinVincular)->assertNotFound();
-        }
+        $this->como($this->b)->postJson('/api/padres/buscar-dui', ['dui' => '000162975'])->assertOk()
+            ->assertJsonPath('padre.id', $sinVincular)->assertJsonMissingPath('padre.telefono');
 
-        $this->como($director)->postJson('/api/padres/buscar-dui', ['dui' => '00016297-5'])->assertOk();
-        $this->vincular($director, $deA->id, $sinVincular)->assertCreated();
+        $this->vincular($this->a, $deA->id, $sinVincular)->assertCreated();
 
-        // Ya vinculado al estudiante de A: A puede usarlo; B sigue sin acceso
+        // Ya vinculado al estudiante de A: A puede usarlo; B ya no lo encuentra ni lo vincula
         $otroDeA = $this->estudianteDe($this->a, $this->catalogos['distrito']);
         $this->vincular($this->a, $otroDeA->id, $sinVincular)->assertCreated();
+        $this->como($this->b)->postJson('/api/padres/buscar-dui', ['dui' => '00016297-5'])->assertNotFound();
         $this->vincular($this->b, $deB->id, $sinVincular)->assertNotFound();
     }
 

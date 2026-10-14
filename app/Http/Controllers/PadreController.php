@@ -9,6 +9,7 @@ use App\Rules\Dui;
 use App\Services\PadreService;
 use App\Services\UsuarioService;
 use App\Support\DuiFormato;
+use App\Support\NuevoPadre;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
@@ -46,13 +47,13 @@ class PadreController extends Controller
     public function update(Request $request, string $id)
     {
         return $this->responder(function () use ($request, $id) {
-            $request->merge(['dui' => DuiFormato::normalizar($request->dui)]);
+            $request->merge(['dui' => DuiFormato::normalizar($request->dui), 'nombre' => NuevoPadre::limpiarNombre($request->nombre)]);
             $validated = $request->validate([
-                'nombre' => 'required|string|max:80',
+                'nombre' => ['required', 'string', 'max:80', NuevoPadre::REGLA_NOMBRE],
                 'dui' => ['required', new Dui],
                 'telefono' => 'nullable|string|max:15',
                 'email' => 'nullable|email|max:100',
-            ], ['nombre.required' => 'El nombre es obligatorio.', 'dui.required' => 'El DUI es obligatorio.']);
+            ], ['nombre.required' => 'El nombre es obligatorio.', 'nombre.regex' => NuevoPadre::MENSAJE_NOMBRE, 'dui.required' => 'El DUI es obligatorio.']);
 
             return response()->json([
                 'message' => 'Datos actualizados correctamente',
@@ -89,88 +90,42 @@ class PadreController extends Controller
                 'message' => 'Error al buscar el padre',
             ], 500);
         }
-    }    
-   /**
-     * Un ENCARGADO registra al padre ya vinculado a uno de sus estudiantes
-     * (estudiante_id y parentesco), salvo que el padre sea la propia cuenta.
-     * El DIRECTOR puede registrarlo sin vincular.
+    }
+
+    /**
+     * Registra un padre o una madre. El encargado los registra antes que al
+     * estudiante, sin vínculo; la relación se crea al guardar al estudiante,
+     * donde se le busca por su DUI. Con estudiante_id y parentesco queda
+     * vinculado en la misma transacción.
      */
-   public function store(Request $request)
+    public function store(Request $request)
     {
-        try {
-            $request->merge(['dui' => DuiFormato::normalizar($request->dui)]);
-
+        return $this->responder(function () use ($request) {
             $propietarioId = $this->propietarioId();
-            $exigirEstudiante = $propietarioId !== null && ! $request->boolean('es_encargado');
+            $responsable = $request->boolean('es_responsable') || $request->boolean('es_encargado');
 
-            $validated = $request->validate([
-                'nombre' => 'required|string|max:80',
-                'dui' => ['required', new Dui, 'unique:padres,dui'],
-                'telefono' => 'nullable|string|max:15',
-                'email' => 'nullable|email|max:100',
-                'es_encargado' => 'required|boolean',
-                'estudiante_id' => [$exigirEstudiante ? 'required' : 'nullable', 'integer'],
+            $vinculo = $request->validate([
+                'estudiante_id' => ['nullable', 'integer'],
                 'parentesco' => ['required_with:estudiante_id', 'nullable', 'in:Padre,Madre'],
             ], [
-                'estudiante_id.required' => 'Indique el estudiante al que pertenece el padre o la madre.',
                 'parentesco.required_with' => 'Indique el parentesco (Padre o Madre).',
                 'parentesco.in' => 'El parentesco debe ser Padre o Madre.',
-                'dui.unique' => $propietarioId
-                    ? 'Este DUI ya está registrado. Para vincular a esta persona con su estudiante se necesita la autorización de la dirección.'
-                    : 'Este DUI ya está registrado: use «Vincular por DUI» en la ficha del estudiante.',
             ]);
 
             // El estudiante debe ser de la cuenta (lo ajeno responde como no encontrado)
-            if (! empty($validated['estudiante_id'])) {
+            if (! empty($vinculo['estudiante_id'])) {
                 \App\Models\Estudiante::query()
                     ->when($propietarioId, fn ($q) => $q->where('user_id', $propietarioId))
-                    ->findOrFail($validated['estudiante_id']);
+                    ->findOrFail($vinculo['estudiante_id']);
             }
 
-            // Si el padre es la persona de la cuenta, debe ser una cuenta ENCARGADO
-            $validated['user_id'] = null;
-            if ($validated['es_encargado']) {
-                $user = $request->user();
-                $this->usuarioService->verificarRol($user, User::ROL_ENCARGADO);
-                if (\App\Models\Encargado::where('user_id', $user->id)->exists()) {
-                    throw new \DomainException('Su cuenta ya tiene un perfil de encargado: el responsable de sus estudiantes es ese perfil.');
-                }
-                $validated['user_id'] = $user->id;
-            }
-
-            $validated['telefono'] = $validated['telefono'] ?? null;
-            $validated['email'] = $validated['email'] ?? null;
-
-            $padre = $this->padreService->crear($validated);
+            $datos = NuevoPadre::validar($request->all() + ['es_responsable' => $responsable], $request->user());
+            $padre = $this->padreService->crear($datos + $vinculo);
 
             return response()->json([
                 'message' => 'Padre registrado exitosamente',
                 'padre' => $padre,
             ], 201);
-
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json([
-                'message' => 'Error de validación',
-                'errors' => $e->errors(),
-            ], 422);
-
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            return response()->json([
-                'message' => 'Estudiante no encontrado',
-            ], 404);
-
-        } catch (\DomainException $e) {
-            // Regla de negocio del servicio (usuario ya registrado como padre)
-            return response()->json([
-                'message' => $e->getMessage(),
-            ], 409);
-
-        } catch (\Exception $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'Error al registrar el padre',
-            ], 500);
-        }
+        }, 'Error al registrar el padre', 'Estudiante no encontrado');
     }
 }

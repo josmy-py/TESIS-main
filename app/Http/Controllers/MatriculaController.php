@@ -21,6 +21,10 @@ class MatriculaController extends Controller
         'ingreso.required' => 'El tipo de ingreso es obligatorio.',
         'estudiante_id.required' => 'El estudiante es obligatorio.',
         'seccion_id.prohibited' => 'La sección la asigna la dirección al revisar la matrícula.',
+        'grado_id.required' => 'Seleccione el grado a matricular.',
+        'turno.required' => 'Seleccione el turno.',
+        'turno.required_with' => 'Seleccione el turno.',
+        'turno.in' => 'El turno debe ser mañana o tarde.',
         'nie.required' => 'El NIE del estudiante es obligatorio.',
         'nie.regex' => 'El NIE debe tener solo números (hasta 10 dígitos).',
         'nie.unique' => 'El NIE ya está registrado; contacte a la dirección.',
@@ -64,12 +68,17 @@ class MatriculaController extends Controller
                 'nie' => $propietarioId && $request->input('ingreso') === 'Nuevo ingreso' && ! $request->boolean('es_trasladado')
                     ? 'prohibited'
                     : $this->reglaNie((int) $request->input('estudiante_id'), $propietarioId !== null),
-                // El encargado no elige sección: la asigna la dirección
+                // El encargado no elige sección: indica grado y turno, que sirven a la
+                // dirección para asignarla (queda una sección de ese grado y turno con cupo)
                 'seccion_id' => $propietarioId ? 'prohibited' : 'nullable|integer|exists:secciones,id',
+                'grado_id' => [$propietarioId ? 'required' : 'nullable', 'integer', 'exists:grados,id'],
+                'turno' => [$propietarioId ? 'required' : 'nullable', 'required_with:grado_id', 'in:matutino,vespertino'],
                 'anio_lectivo_id' => 'nullable|integer',
                 'especialidad_id' => 'nullable|integer|exists:especialidades,id',
                 'encargado_id' => 'nullable|integer|exists:encargados,id',
                 'enfermedad_id' => 'nullable|integer|exists:enfermedades,id',
+                // Medicamento que toma el estudiante para esa enfermedad (texto libre)
+                'medicamento' => 'nullable|string|max:50',
                 'discapacidades' => 'nullable|array',
                 'discapacidades.*' => 'integer|distinct|exists:discapacidades,id',
                 'foto' => 'required|image|mimes:jpeg,png,jpg|max:2048',

@@ -118,12 +118,15 @@ class MatriculaTest extends TestCase
         return $estudiante;
     }
 
-    /** El encargado solicita sin sección; la dirección puede indicarla (por defecto Primer grado A). */
+    /** El encargado solicita con grado y turno (sin sección); la dirección puede indicarla (por defecto Primer grado A). */
     private function solicitar(Estudiante $estudiante, array $datos = [], ?User $cuenta = null)
     {
         $cuenta ??= $this->a;
         $director = $cuenta->is($this->director);
-        $seccion = $director ? ['seccion_id' => $this->primeroA->id] : [];
+        // El encargado indica grado y turno (por defecto, el grado que permite la promoción, en la mañana)
+        $grados = app(\App\Services\PromocionService::class)->opciones($estudiante, $this->anio)['grados'];
+        $seccion = $director ? ['seccion_id' => $this->primeroA->id]
+            : ['grado_id' => $grados[0] ?? $this->primero->id, 'turno' => 'matutino'];
         // El encargado envía el NIE en Reingreso o con traslado; en Nuevo ingreso sin traslado lo agrega la dirección
         $conNie = $director || ($datos['ingreso'] ?? 'Nuevo ingreso') === 'Reingreso' || ! empty($datos['es_trasladado']);
         $nie = $conNie && ! array_key_exists('nie', $datos) ? ['nie' => $estudiante->nie] : [];
@@ -171,10 +174,16 @@ class MatriculaTest extends TestCase
         $this->solicitar($hijo, ['documento' => null])->assertStatus(422)
             ->assertJsonPath('errors.documento.0', 'La partida de nacimiento es obligatoria para Nuevo ingreso.');
 
-        // Sin enfermedad ni especialidad (D-M2, D-M8): queda pendiente, sin sección, y los archivos van al disco privado
+        // Grado y turno son obligatorios; el turno debe tener secciones con cupo de ese grado
+        $this->solicitar($hijo, ['grado_id' => null, 'turno' => null])->assertStatus(422)->assertJsonValidationErrors(['grado_id', 'turno']);
+        $this->solicitar($hijo, ['grado_id' => $this->primero->id, 'turno' => 'vespertino'])->assertStatus(422)
+            ->assertJsonPath('errors.turno.0', 'No hay secciones con cupo de este grado en el turno de la tarde para 2027.');
+
+        // Sin enfermedad ni especialidad (D-M2, D-M8): queda pendiente en una sección del grado y turno
+        // pedidos (la dirección la confirma o cambia al aprobar), y los archivos van al disco privado
         $respuesta = $this->solicitar($hijo)->assertCreated()
             ->assertJsonPath('matricula.estado', 'pendiente')
-            ->assertJsonPath('matricula.seccion_id', null)
+            ->assertJsonPath('matricula.seccion_id', $this->primeroA->id)
             ->assertJsonPath('matricula.especialidad_id', null)
             ->assertJsonPath('matricula.enfermedad_id', null)
             ->assertJsonMissingPath('matricula.foto');
@@ -374,10 +383,11 @@ class MatriculaTest extends TestCase
         $hijo = $this->hijoDeA();
         $id = $this->solicitar($hijo)->assertCreated()->json('matricula.id');
 
-        // Solo la dirección aprueba, y asigna la sección que el encargado no eligió
+        // Solo la dirección aprueba; sin sección indicada se confirma la del grado y turno pedidos
         $this->aprobar($id, ['seccion_id' => $this->primeroA->id], $this->a)->assertForbidden();
-        $this->aprobar($id)->assertStatus(422)->assertJsonPath('errors.seccion_id.0', 'Asigne una sección antes de aprobar la matrícula.');
-        $this->aprobar($id, ['seccion_id' => $this->primeroA->id])->assertOk()->assertJsonPath('matricula.estado', 'aprobado')
+        $sinSeccion = $this->matriculaDe($this->hijoDeA(), $this->catalogos, ['anio_lectivo_id' => $this->anio->id, 'especialidad_id' => null]);
+        $this->aprobar($sinSeccion)->assertStatus(422)->assertJsonPath('errors.seccion_id.0', 'Asigne una sección antes de aprobar la matrícula.');
+        $this->aprobar($id)->assertOk()->assertJsonPath('matricula.estado', 'aprobado')
             ->assertJsonPath('matricula.seccion_id', $this->primeroA->id);
         $this->assertSame('activo', $hijo->fresh()->estado);
         $this->aprobar($id)->assertStatus(409);
@@ -591,6 +601,28 @@ class MatriculaTest extends TestCase
 
     // ------------------------------------------------- diagnóstico y seeder
 
+    // Catálogo de salud sembrado; el medicamento escrito queda en la enfermedad «Nombre (medicamento)»
+    public function test_catalogo_de_salud_y_medicamento_escrito(): void
+    {
+        $this->seed(\Database\Seeders\CatalogoSaludSeeder::class);
+        $this->seed(\Database\Seeders\CatalogoSaludSeeder::class);
+        $this->assertSame(count(\Database\Seeders\CatalogoSaludSeeder::ENFERMEDADES), \App\Models\Enfermedad::whereIn('nombre', \Database\Seeders\CatalogoSaludSeeder::ENFERMEDADES)->count());
+        $this->assertSame(count(\Database\Seeders\CatalogoSaludSeeder::DISCAPACIDADES), \App\Models\Discapacidad::whereIn('nombre', \Database\Seeders\CatalogoSaludSeeder::DISCAPACIDADES)->count());
+        $asma = \App\Models\Enfermedad::where('nombre', 'Asma')->first();
+
+        $this->solicitar($this->hijoDeA(), ['medicamento' => 'Salbutamol'])->assertStatus(422)->assertJsonValidationErrors('enfermedad_id');
+
+        $id = $this->solicitar($this->hijoDeA(), ['enfermedad_id' => $asma->id, 'medicamento' => ' Salbutamol  inhalado '])->assertCreated()->json('matricula.id');
+        $enfermedad = Matricula::find($id)->enfermedad()->first();
+        $this->assertSame(['Asma (Salbutamol inhalado)', 'Salbutamol inhalado'], [$enfermedad->nombre, $enfermedad->medicamento]);
+        $this->assertSame('', $asma->fresh()->medicamento);
+
+        // El mismo medicamento reutiliza la enfermedad; sin medicamento queda la del catálogo
+        $otra = $this->solicitar($this->hijoDeA(), ['enfermedad_id' => $asma->id, 'medicamento' => 'Salbutamol inhalado'])->assertCreated()->json('matricula.enfermedad_id');
+        $this->assertSame($enfermedad->id, $otra);
+        $this->solicitar($this->hijoDeA(), ['enfermedad_id' => $asma->id])->assertCreated()->assertJsonPath('matricula.enfermedad_id', $asma->id);
+    }
+
     public function test_diagnostico_informa_sin_modificar(): void
     {
         $this->solicitar($this->hijoDeA())->assertCreated();
@@ -618,7 +650,7 @@ class MatriculaTest extends TestCase
         Artisan::call('siga:diagnostico-matriculas');
         $salida = Artisan::output();
         $this->assertStringContainsString('caso(s) para revisar manualmente. No se modificó nada.', $salida);
-        $this->assertStringContainsString('Informativo: matrículas pendientes sin sección (la dirección la asigna al aprobar): 2', $salida);
+        $this->assertStringContainsString('Informativo: matrículas pendientes sin sección (la dirección la asigna al aprobar): 1', $salida);
         $this->assertEquals($antes, DB::table('matriculas')->get()->toArray());
     }
 
