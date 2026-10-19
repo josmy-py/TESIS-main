@@ -9,9 +9,10 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Perfil del docente (tabla profesores). Al registrar un docente se crea
- * también su cuenta DOCENTE (UsuarioService::crearCuenta), y el código
- * PROF-001, PROF-002... se asigna aquí, nunca desde el cliente.
+ * Perfil del docente (tabla profesores). La cuenta DOCENTE se crea antes en
+ * Usuarios y aquí solo se vincula con el registro del profesor (pedido de
+ * Josmy, 19/10/2026). El código PROF-001, PROF-002... se asigna aquí, nunca
+ * desde el cliente.
  */
 class ProfesorService
 {
@@ -46,13 +47,22 @@ class ProfesorService
         return Profesor::with(self::CAMPOS_CUENTA)->findOrFail($id);
     }
 
+    /** Cuentas DOCENTE que todavía no están vinculadas con un profesor. */
+    public function cuentasDisponibles()
+    {
+        return User::whereHas('rolAsignado', fn ($q) => $q->where('nombre', User::ROL_DOCENTE))
+            ->doesntHave('profesor')
+            ->orderBy('email')
+            ->get(['id', 'email']);
+    }
+
     /**
-     * Crea el perfil y su cuenta DOCENTE en una sola transacción.
+     * Crea el perfil vinculado con una cuenta DOCENTE sin perfil.
      */
     public function crear(array $data): Profesor
     {
         return DB::transaction(function () use ($data) {
-            $user = $this->cuentaDocente($data);
+            $user = $this->cuentaDocente((int) $data['user_id']);
 
             $profesor = Profesor::create([
                 'nombre' => $data['nombre'],
@@ -69,26 +79,32 @@ class ProfesorService
     }
 
     /**
-     * actualizarDatos: el código, el DUI y la cuenta no cambian.
+     * actualizarDatos: el código y el DUI no cambian. La cuenta vinculada se
+     * puede cambiar por otra cuenta DOCENTE sin perfil.
      */
     public function actualizar($id, array $data): Profesor
     {
         $profesor = Profesor::findOrFail($id);
 
-        $profesor->update([
+        $cambios = [
             'nombre' => $data['nombre'],
             'fecha_nacimiento' => $data['fecha_nacimiento'],
             'telefono' => $data['telefono'],
             'direccion' => $data['direccion'],
-        ]);
+        ];
+        if (! empty($data['user_id']) && (int) $data['user_id'] !== (int) $profesor->user_id) {
+            $cambios['user_id'] = $this->cuentaDocente((int) $data['user_id'])->id;
+        }
+
+        $profesor->update($cambios);
 
         return $profesor->load(self::CAMPOS_CUENTA);
     }
 
     /**
      * Solo se elimina un docente sin secciones ni asignaciones (registrado por
-     * error); se elimina también su cuenta. Un docente con historial se
-     * desactiva desde la gestión de usuarios.
+     * error). La cuenta se administra en Usuarios: queda libre para vincularla
+     * de nuevo.
      */
     public function eliminar($id): bool
     {
@@ -98,15 +114,7 @@ class ProfesorService
             return false;
         }
 
-        DB::transaction(function () use ($profesor) {
-            $user = $profesor->user;
-
-            $profesor->delete();
-
-            if ($user && ! $this->usuarioService->tieneRegistrosAsociados($user)) {
-                $user->delete();
-            }
-        });
+        $profesor->delete();
 
         return true;
     }
@@ -131,40 +139,21 @@ class ProfesorService
         return Profesor::PREFIJO_CODIGO.str_pad((string) ($ultimo + 1), 3, '0', STR_PAD_LEFT);
     }
 
-    /**
-     * Si ya existe una cuenta DOCENTE con ese correo y sin perfil (creada antes
-     * desde la gestión de usuarios), se vincula; si no, se crea con la
-     * contraseña inicial indicada.
-     */
-    private function cuentaDocente(array $data): User
+    /** La cuenta que se vincula debe existir, ser DOCENTE y no tener otro profesor. */
+    private function cuentaDocente(int $userId): User
     {
-        $existente = User::where('email', $data['email'])->first();
+        $cuenta = User::find($userId);
 
-        if ($existente) {
-            if (! $existente->hasRole(User::ROL_DOCENTE)) {
-                throw ValidationException::withMessages([
-                    'email' => ['Este correo ya pertenece a una cuenta con otro rol.'],
-                ]);
-            }
-
-            if ($existente->profesor()->exists()) {
-                throw ValidationException::withMessages([
-                    'email' => ['Este correo ya tiene un perfil de docente.'],
-                ]);
-            }
-
-            return $existente;
+        if (! $cuenta) {
+            throw ValidationException::withMessages(['user_id' => ['La cuenta seleccionada no existe.']]);
+        }
+        if (! $cuenta->hasRole(User::ROL_DOCENTE)) {
+            throw ValidationException::withMessages(['user_id' => ['La cuenta seleccionada no tiene el rol DOCENTE.']]);
+        }
+        if ($cuenta->profesor()->exists()) {
+            throw ValidationException::withMessages(['user_id' => ['La cuenta seleccionada ya está vinculada con otro profesor.']]);
         }
 
-        if (empty($data['password'])) {
-            throw ValidationException::withMessages([
-                'password' => ['La contraseña inicial es obligatoria para crear la cuenta del docente.'],
-            ]);
-        }
-
-        return $this->usuarioService->crearCuenta([
-            'email' => $data['email'],
-            'password' => $data['password'],
-        ], User::ROL_DOCENTE);
+        return $cuenta;
     }
 }

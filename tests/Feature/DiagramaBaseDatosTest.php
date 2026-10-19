@@ -41,7 +41,8 @@ class DiagramaBaseDatosTest extends TestCase
         'asignaciones' => ['profesor_id', 'asignatura_id', 'seccion_id'],
         'calificaciones' => ['nota_obtenida', 'evaluacion_id', 'matricula_id'],
         'evaluaciones' => ['nombre', 'porcentaje', 'periodo_escolar_id', 'asignacion_id'],
-        'periodo_escolares' => ['nombre_periodo', 'nivel', 'anio_lectivo_id'],
+        // estado: excepción pedida por Josmy (19/10/2026) para cerrar cada periodo
+        'periodo_escolares' => ['nombre_periodo', 'nivel', 'anio_lectivo_id', 'estado'],
         'conductas' => ['matricula_id', 'descripcion', 'valoracion', 'periodo_escolar_id'],
         'boletas' => ['matricula_id', 'asignacion_id', 'periodo_escolar_id', 'promedio'],
         'users' => ['email', 'password', 'rol_id'],
@@ -90,6 +91,7 @@ class DiagramaBaseDatosTest extends TestCase
         'conductas.descripcion' => 'varchar(100)', 'conductas.valoracion' => 'varchar(20)',
         'boletas.promedio' => 'decimal(4,2)',
         'anios_lectivos.estado' => "enum('activo','inactivo','cierre')",
+        'periodo_escolares.estado' => "enum('pendiente','en_curso','cerrado')",
         'encargados.parentesco' => "enum('Tío(a)','Abuelo(a)','Hermano(a)','Primo(a)')",
         'parientes.parentesco' => "enum('Padre','Madre')",
     ];

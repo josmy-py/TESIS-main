@@ -72,7 +72,7 @@ class ConductaService
         return DB::transaction(function () use ($seccion, $periodoId, $filas) {
             $periodo = $this->periodoDeLaSeccion($seccion, $periodoId);
             if (! $periodo->permiteRegistros()) {
-                throw new \DomainException('El año lectivo de este periodo no está activo: no se puede registrar ni modificar la conducta.');
+                throw new \DomainException($periodo->motivoBloqueo('no se puede registrar ni modificar la conducta'));
             }
 
             $validas = $this->matriculas($seccion)->pluck('id')->all();

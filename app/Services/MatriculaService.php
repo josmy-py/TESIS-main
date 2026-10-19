@@ -124,6 +124,7 @@ class MatriculaService
         $matricula = $this->matriculas($propietarioId)->with([
             'estudiante.padres:id,nombre,dui,telefono,email,user_id',
             'estudiante.distrito.municipio.departamento',
+            'estudiante.user:id,email',
             'especialidad:id,nombre',
             'anioLectivo:id,anio,estado',
             'seccion:id,nombre,turno,grado_id,capacidad,anio_lectivo_id',
@@ -319,6 +320,7 @@ class MatriculaService
 
             $this->sinOtraVigente($estudiante, $anio, $matricula->id);
             $especialidad = $this->validarGradoYPlan($estudiante, $anio, $seccion, $matricula->ingreso, PromocionService::id($matricula->especialidad_id));
+            $this->delGradoYTurnoPedidos($matricula, $seccion);
             $this->validarResponsable($estudiante, $matricula->encargado_id, null);
             $this->validarCupo($seccion, $matricula->id, true);
 
@@ -518,13 +520,16 @@ class MatriculaService
      */
     public function seccionesParaAsignar($id): array
     {
-        $matricula = Matricula::with('estudiante')->findOrFail($id);
+        $matricula = Matricula::with('estudiante', 'seccion:id,grado_id,turno')->findOrFail($id);
         $anio = AnioLectivo::findOrFail($matricula->anio_lectivo_id);
         $opciones = $this->promocion->opciones($matricula->estudiante, $anio);
+        // El responsable ya indicó grado y turno: la dirección solo elige la sección
+        $pedida = $matricula->seccion;
 
         $secciones = Seccion::with('grado:id,nombre')
             ->where('anio_lectivo_id', $anio->id)
             ->whereIn('grado_id', $opciones['grados'])
+            ->when($pedida, fn ($q) => $q->where('grado_id', $pedida->grado_id)->where('turno', $pedida->turno))
             ->withCount(['matriculas as ocupados' => fn ($q) => $q->where('anio_lectivo_id', $anio->id)
                 ->where('estado', 'aprobado')->whereKeyNot($matricula->id)])
             ->orderBy('nombre')
@@ -550,6 +555,21 @@ class MatriculaService
                 ? 'No hay secciones con cupo para el grado que corresponde al estudiante en este año lectivo.'
                 : $opciones['mensaje']),
         ];
+    }
+
+    /**
+     * El grado y el turno los indica el responsable en la solicitud (pedido de
+     * Josmy, 19/10/2026): al aprobar, la dirección solo puede elegir otra
+     * sección de ese mismo grado y turno.
+     */
+    private function delGradoYTurnoPedidos(Matricula $matricula, Seccion $seccion): void
+    {
+        $pedida = $matricula->seccion_id ? Seccion::with('grado:id,nombre')->find($matricula->seccion_id) : null;
+        if ($pedida && ($pedida->grado_id !== $seccion->grado_id || $pedida->turno !== $seccion->turno)) {
+            throw ValidationException::withMessages([
+                'seccion_id' => "La sección debe ser de {$pedida->grado?->nombre}, turno {$pedida->turno}: es lo que pidió el responsable.",
+            ]);
+        }
     }
 
     public function verificarDuplicidad($estudianteId, $anioLectivoId = null)

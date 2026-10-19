@@ -131,7 +131,9 @@ Route::middleware(['auth:api', 'sesion', 'role:DIRECTOR'])->group(function () {
     Route::post('anios-lectivos/{id}/periodos', [AnioLectivoController::class, 'agregarPeriodo'])->whereNumber('id');
     Route::put('periodos-escolares/{id}', [PeriodoEscolarController::class, 'update'])->whereNumber('id');
     Route::delete('periodos-escolares/{id}', [PeriodoEscolarController::class, 'destroy'])->whereNumber('id');
+    Route::put('periodos-escolares/{id}/estado', [PeriodoEscolarController::class, 'estado'])->whereNumber('id');
     Route::apiResource('secciones', SeccionController::class);
+    Route::get('profesores/cuentas-disponibles', [ProfesorController::class, 'cuentasDisponibles']);
     Route::apiResource('profesores', ProfesorController::class);
     // M4: asignación académica (PUT solo cambia el docente; la carga de un docente se guarda de una vez)
     Route::apiResource('asignaciones', AsignacionController::class);

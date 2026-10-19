@@ -62,7 +62,7 @@ class LibretaService
         return DB::transaction(function () use ($asignacion, $periodoId) {
             $periodo = $this->periodoDeLaSeccion($asignacion, $periodoId);
             if (! $periodo->permiteRegistros()) {
-                throw new \DomainException('El año lectivo de este periodo no está activo: no se puede generar la libreta.');
+                throw new \DomainException($periodo->motivoBloqueo('no se puede generar la libreta'));
             }
 
             $calculo = $this->calcular($asignacion, $periodo);

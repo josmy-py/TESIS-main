@@ -7,6 +7,7 @@ use App\Services\CalendarioService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -40,6 +41,27 @@ class PeriodoEscolarController extends Controller
                 'periodo' => $this->calendario->actualizarPeriodo($id, $datos),
             ]);
         }, 'Error al actualizar el periodo');
+    }
+
+    /** Estado del periodo: pendiente, en_curso o cerrado (cierre de cada trimestre). */
+    public function estado(Request $request, string $id)
+    {
+        return $this->responder(function () use ($request, $id) {
+            PeriodoEscolar::findOrFail($id);
+
+            $datos = $request->validate([
+                'estado' => ['required', Rule::in(PeriodoEscolar::ESTADOS)],
+            ], [
+                'estado.required' => 'Indique el estado del periodo.',
+                'estado.in' => 'El estado debe ser pendiente, en curso o cerrado.',
+            ]);
+            $periodo = $this->calendario->cambiarEstadoPeriodo($id, $datos['estado']);
+
+            return response()->json([
+                'message' => "{$periodo->nombre_periodo}: ".CalendarioService::textoEstadoPeriodo($periodo->estado),
+                'periodo' => $periodo,
+            ]);
+        }, 'Error al cambiar el estado del periodo');
     }
 
     public function destroy(string $id)

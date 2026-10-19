@@ -214,7 +214,7 @@ class NotasService
     private function asegurarEditable(PeriodoEscolar $periodo): void
     {
         if (! $periodo->permiteRegistros()) {
-            throw new \DomainException('El año lectivo de este periodo no está activo: no se pueden registrar ni modificar notas.');
+            throw new \DomainException($periodo->motivoBloqueo('no se pueden registrar ni modificar notas'));
         }
     }
 

@@ -570,7 +570,18 @@ class MatriculaTest extends TestCase
             'grado_id' => $this->primero->id, 'profesor_id' => $this->profesor]);
         $this->segundoA->update(['capacidad' => 1]);
 
-        // Nuevo ingreso: todos los grados con secciones con cupo, cada uno con sus turnos
+        // El responsable pidió Primer grado en la mañana: la dirección solo elige la sección
+        $this->como($this->director)->getJson("/api/matriculas/{$id}/secciones")->assertOk()
+            ->assertJsonCount(1, 'grados')
+            ->assertJsonPath('grados.0.id', $this->primero->id)
+            ->assertJsonCount(1, 'grados.0.turnos')
+            ->assertJsonPath('grados.0.turnos.0.turno', 'matutino');
+        // Otra sección del mismo grado y otro turno no se acepta al aprobar
+        $this->aprobar($id, ['seccion_id' => $vespertina->id])->assertStatus(422)
+            ->assertJsonPath('errors.seccion_id.0', 'La sección debe ser de Primer grado, turno matutino: es lo que pidió el responsable.');
+
+        // Solicitud anterior sin grado ni turno: todos los grados con secciones con cupo, cada uno con sus turnos
+        $id = $this->matriculaDe($this->hijoDeA(), $this->catalogos, ['estado' => 'pendiente', 'anio_lectivo_id' => $this->anio->id, 'seccion_id' => null, 'especialidad_id' => null]);
         $this->como($this->director)->getJson("/api/matriculas/{$id}/secciones")->assertOk()
             ->assertJsonCount(2, 'grados')
             ->assertJsonPath('grados.0.turnos.0.turno', 'matutino')
@@ -589,7 +600,7 @@ class MatriculaTest extends TestCase
         $this->aprobar($id, ['seccion_id' => $vespertina->id])->assertStatus(422)->assertJsonValidationErrors('seccion_id');
 
         // El formulario del encargado muestra por grado solo los turnos con cupo
-        $hijo = Matricula::find($id)->estudiante_id;
+        $hijo = $this->hijoDeA()->id;
         $grados = collect($this->como($this->a)->getJson("/api/matriculas/estudiantes/{$hijo}/opciones")->assertOk()->json('grados'))->keyBy('id');
         $this->assertSame(['matutino'], $grados[$this->primero->id]['turnos']);
         $this->assertSame('Educación Básica', $grados[$this->primero->id]['nivel']);
@@ -597,6 +608,11 @@ class MatriculaTest extends TestCase
 
         // Solo la dirección consulta
         $this->como($this->a)->getJson("/api/matriculas/{$id}/secciones")->assertForbidden();
+
+        // Revisar: el detalle trae el correo de la cuenta y el lugar de nacimiento
+        $this->como($this->director)->getJson("/api/matriculas/{$id}")->assertOk()
+            ->assertJsonPath('estudiante.user.email', $this->a->email)
+            ->assertJsonStructure(['estudiante' => ['direccion', 'distrito' => ['nombre', 'municipio' => ['nombre', 'departamento' => ['nombre']]]]]);
     }
 
     // ------------------------------------------------- diagnóstico y seeder

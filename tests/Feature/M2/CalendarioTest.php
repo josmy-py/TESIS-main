@@ -144,6 +144,7 @@ class CalendarioTest extends TestCase
         $this->periodosDe($id);
         $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/cerrar")->assertStatus(409); // inactivo
         $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/activar")->assertOk();
+        $this->cerrarPeriodos($id);
         $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/cerrar")->assertOk()->assertJsonPath('anio_lectivo.estado', 'cierre');
 
         $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/activar")
@@ -185,6 +186,7 @@ class CalendarioTest extends TestCase
             ->assertJsonPath('anio_lectivo.id', $id)->assertJsonCount(3, 'anio_lectivo.periodos')
             ->assertJsonMissingPath('periodo_abierto');
 
+        $this->cerrarPeriodos($id);
         $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/cerrar")->assertOk();
         $this->como($this->director)->putJson("/api/periodos-escolares/{$p1}", ['nombre_periodo' => 'X'])->assertStatus(409);
     }
@@ -207,8 +209,72 @@ class CalendarioTest extends TestCase
         $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/activar")->assertOk();
         $this->assertSame($p1, $servicio->asegurarPeriodoEditable($p1)->id);
 
+        // Periodo cerrado: ya no se registran notas ni conducta en él
+        $this->cambiarEstado($p1, 'en_curso')->assertOk();
+        $this->cambiarEstado($p1, 'cerrado')->assertOk();
+        $this->assertFalse(PeriodoEscolar::find($p1)->permiteRegistros());
+        try {
+            $servicio->asegurarPeriodoEditable($p1);
+            $this->fail('Debía rechazar un periodo cerrado');
+        } catch (\DomainException $e) {
+            $this->assertStringContainsString('está cerrado', $e->getMessage());
+        }
+
+        $this->cerrarPeriodos($id);
         $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/cerrar")->assertOk();
         $this->assertFalse(PeriodoEscolar::find($p1)->permiteRegistros());
+    }
+
+    public function test_estado_de_los_periodos(): void
+    {
+        $id = $this->crearAnio()->json('anio_lectivo.id');
+        [$p1, $p2] = $this->periodosDe($id);
+
+        // Se crean pendientes
+        $this->como($this->director)->getJson("/api/anios-lectivos/{$id}/periodos")->assertOk()
+            ->assertJsonPath('periodos.0.estado', 'pendiente');
+
+        // Con el año inactivo no cambia
+        $this->cambiarEstado($p1, 'en_curso')->assertStatus(409);
+        $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/activar")->assertOk();
+
+        $this->cambiarEstado($p1, 'cerrado')->assertStatus(409)->assertJsonPath('message', 'Solo se puede cerrar un periodo en curso.');
+        $this->cambiarEstado($p1, 'abierto')->assertStatus(422)->assertJsonValidationErrors('estado');
+        $this->cambiarEstado($p1, 'en_curso')->assertOk()->assertJsonPath('periodo.estado', 'en_curso');
+        // Uno en curso a la vez
+        $this->cambiarEstado($p2, 'en_curso')->assertStatus(409);
+        // El año no se cierra con periodos abiertos
+        $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/cerrar")->assertStatus(409);
+        // Solo se elimina un periodo pendiente
+        $this->como($this->director)->deleteJson("/api/periodos-escolares/{$p1}")->assertStatus(409);
+
+        $this->cambiarEstado($p1, 'cerrado')->assertOk()->assertJsonPath('periodo.estado', 'cerrado');
+        $this->cambiarEstado($p1, 'pendiente')->assertStatus(409);
+        $this->cambiarEstado($p2, 'en_curso')->assertOk();
+        // Reabrir uno cerrado exige que no haya otro en curso
+        $this->cambiarEstado($p1, 'en_curso')->assertStatus(409);
+        $this->cambiarEstado($p2, 'pendiente')->assertOk();
+        $this->cambiarEstado($p1, 'en_curso')->assertOk();
+
+        foreach ([$this->usuario(User::ROL_DOCENTE), $this->usuario(User::ROL_ENCARGADO)] as $cuenta) {
+            $this->como($cuenta)->putJson("/api/periodos-escolares/{$p1}/estado", ['estado' => 'cerrado'])->assertStatus(403);
+        }
+    }
+
+    private function cambiarEstado(int $periodo, string $estado)
+    {
+        return $this->como($this->director)->putJson("/api/periodos-escolares/{$periodo}/estado", ['estado' => $estado]);
+    }
+
+    /** El año solo se cierra con todos sus periodos cerrados. */
+    private function cerrarPeriodos(int $anioId): void
+    {
+        foreach (PeriodoEscolar::where('anio_lectivo_id', $anioId)->where('estado', '<>', 'cerrado')->orderBy('nivel')->pluck('id') as $periodo) {
+            if (PeriodoEscolar::find($periodo)->estado === 'pendiente') {
+                $this->cambiarEstado($periodo, 'en_curso')->assertOk();
+            }
+            $this->cambiarEstado($periodo, 'cerrado')->assertOk();
+        }
     }
 
     // --- Protección de registros con datos asociados ---

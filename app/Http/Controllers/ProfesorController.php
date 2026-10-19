@@ -9,7 +9,6 @@ use App\Rules\Dui;
 use App\Support\DuiFormato;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\Rules\Password as ReglaPassword;
 use Illuminate\Validation\ValidationException;
 
 class ProfesorController extends Controller
@@ -19,8 +18,8 @@ class ProfesorController extends Controller
         'nombre.max' => 'El nombre del profesor no debe exceder los 80 caracteres.',
         'dui.required' => 'El DUI del profesor es obligatorio.',
         'dui.unique' => 'El DUI del profesor ya está registrado.',
-        'email.required' => 'El correo es obligatorio para crear la cuenta del docente.',
-        'email.email' => 'El correo no es válido.',
+        'user_id.required' => 'Seleccione la cuenta de usuario del profesor.',
+        'user_id.integer' => 'Seleccione una cuenta de usuario válida.',
         'fecha_nacimiento.required' => 'La fecha de nacimiento del profesor es obligatoria.',
         'fecha_nacimiento.before_or_equal' => 'El profesor debe ser mayor de edad.',
         'telefono.required' => 'El teléfono del profesor es obligatorio.',
@@ -73,22 +72,27 @@ class ProfesorController extends Controller
         }
     }
 
+    /** Cuentas DOCENTE sin profesor, para el campo de cuenta del formulario. */
+    public function cuentasDisponibles()
+    {
+        return response()->json(['cuentas' => $this->profesorService->cuentasDisponibles()]);
+    }
+
     /**
-     * Registra al docente y crea su cuenta DOCENTE; la persona recibe un
-     * enlace en su correo para definir la contraseña. El código se genera solo.
+     * Registra al docente y lo vincula con una cuenta DOCENTE ya creada en
+     * Usuarios (sin correo ni contraseña en este formulario). El código se
+     * genera solo.
      */
     public function store(Request $request)
     {
         try {
             $request->merge([
                 'dui' => DuiFormato::normalizar($request->dui),
-                'email' => is_string($request->email) ? mb_strtolower(trim($request->email)) : $request->email,
             ]);
 
             $data = $request->validate(array_merge($this->reglasComunes(), [
                 'dui' => ['required', 'string', 'max:10', 'unique:profesores,dui', new Dui],
-                'email' => 'required|string|email|max:255',
-                'password' => ['nullable', 'string', ReglaPassword::min(8)->letters()->numbers()],
+                'user_id' => 'required|integer',
             ]), self::MENSAJES);
 
             $profesor = $this->profesorService->crear($data);
@@ -125,8 +129,8 @@ class ProfesorController extends Controller
     }
 
     /**
-     * Nombre, fecha de nacimiento, teléfono y dirección. El código, el DUI y
-     * la cuenta no se modifican.
+     * Nombre, fecha de nacimiento, teléfono, dirección y cuenta vinculada. El
+     * código y el DUI no se modifican.
      */
     public function update(Request $request, string $id)
     {
@@ -140,14 +144,13 @@ class ProfesorController extends Controller
             if ($request->filled('dui') && DuiFormato::normalizar($request->dui) !== $profesor->dui) {
                 $inmutables['dui'] = ['El DUI del profesor no se puede modificar.'];
             }
-            if ($request->filled('user_id') && (int) $request->user_id !== (int) $profesor->user_id) {
-                $inmutables['user_id'] = ['La cuenta del profesor no se puede cambiar.'];
-            }
             if ($inmutables) {
                 return $this->errorValidacion($inmutables);
             }
 
-            $data = $request->validate($this->reglasComunes($profesor->id), self::MENSAJES);
+            $data = $request->validate(array_merge($this->reglasComunes($profesor->id), [
+                'user_id' => 'nullable|integer',
+            ]), self::MENSAJES);
 
             $profesor = $this->profesorService->actualizar($profesor->id, $data);
 
@@ -185,7 +188,7 @@ class ProfesorController extends Controller
             }
 
             return response()->json([
-                'message' => 'Profesor y su cuenta eliminados exitosamente'
+                'message' => 'Profesor eliminado exitosamente. Su cuenta de usuario sigue en Usuarios.'
             ], 200);
 
         } catch (ModelNotFoundException $e) {

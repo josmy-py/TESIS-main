@@ -129,16 +129,17 @@ class PropiedadDatosTest extends TestCase
     }
 
     // La cuenta del docente se elige por correo: un user_id enviado por el cliente se ignora
-    public function test_perfil_docente_usa_la_cuenta_docente_del_correo(): void
+    public function test_perfil_docente_usa_la_cuenta_docente_elegida(): void
     {
         $director = $this->usuario(User::ROL_DIRECTOR);
         $docente = $this->usuario(User::ROL_DOCENTE, ['email' => 'prof@example.com']);
         $datos = ['nombre' => 'Prof', 'dui' => '000162975', 'fecha_nacimiento' => '1990-01-01',
-            'telefono' => '7123-4567', 'direccion' => 'X', 'email' => 'prof@example.com'];
+            'telefono' => '7123-4567', 'direccion' => 'X'];
 
-        $this->como($director)->postJson('/api/profesores', array_merge($datos, ['email' => $this->a->email]))
-            ->assertStatus(422)->assertJsonValidationErrors('email');
+        // La cuenta de otra persona (no DOCENTE) no se vincula
         $this->como($director)->postJson('/api/profesores', $datos + ['user_id' => $this->a->id])
+            ->assertStatus(422)->assertJsonValidationErrors('user_id');
+        $this->como($director)->postJson('/api/profesores', $datos + ['user_id' => $docente->id])
             ->assertCreated()->assertJsonPath('profesor.dui', '00016297-5')
             ->assertJsonPath('profesor.user_id', $docente->id);
     }

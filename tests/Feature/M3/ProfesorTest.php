@@ -11,8 +11,9 @@ use Tests\Feature\M1\DatosM1;
 use Tests\TestCase;
 
 /**
- * M3: registro de docentes con su cuenta, código PROF-### automático y
- * datos no editables.
+ * M3: registro de docentes vinculados con una cuenta DOCENTE ya creada en
+ * Usuarios (19/10/2026: sin correo ni contraseña en el formulario), código
+ * PROF-### automático y datos no editables.
  */
 class ProfesorTest extends TestCase
 {
@@ -43,37 +44,48 @@ class ProfesorTest extends TestCase
         return array_merge([
             'nombre' => 'Ana López',
             'dui' => $this->dui('04567890'),
-            'email' => 'ana.lopez@example.com',
             'fecha_nacimiento' => '1990-04-20',
             'telefono' => '7123-4567',
             'direccion' => 'Colonia Escalón, San Salvador',
-            'password' => 'Inicial123',
         ], $cambios);
     }
 
+    // Sin user_id se crea una cuenta DOCENTE libre para el profesor
     private function crear(array $cambios = [])
     {
+        if (! array_key_exists('user_id', $cambios)) {
+            $cambios['user_id'] = $this->usuario(User::ROL_DOCENTE)->id;
+        }
+
         return $this->como($this->director)->postJson('/api/profesores', $this->datos($cambios));
     }
 
-    public function test_crear_docente_crea_cuenta_docente_y_codigo_automatico(): void
+    public function test_crear_docente_vincula_la_cuenta_y_codigo_automatico(): void
     {
+        $cuenta = $this->usuario(User::ROL_DOCENTE, ['email' => 'ana.lopez@example.com']);
 
-        $respuesta = $this->crear(['codigo' => 'X-999', 'user_id' => $this->director->id]);
-
-        $respuesta->assertCreated()
+        $this->crear(['codigo' => 'X-999', 'user_id' => $cuenta->id, 'email' => 'ignorado@example.com', 'password' => 'Ignorada123'])
+            ->assertCreated()
             ->assertJsonPath('profesor.codigo', 'PROF-001')
             ->assertJsonPath('profesor.user.email', 'ana.lopez@example.com');
 
-        $user = User::where('email', 'ana.lopez@example.com')->firstOrFail();
-        $this->assertTrue($user->hasRole(User::ROL_DOCENTE));
-        $this->assertSame($user->id, Profesor::firstOrFail()->user_id);
-        $this->postJson('/api/auth/login', ['email' => 'ana.lopez@example.com', 'password' => 'Inicial123'])->assertOk();
+        $this->assertSame($cuenta->id, Profesor::firstOrFail()->user_id);
+        $this->assertNull(User::where('email', 'ignorado@example.com')->first());
 
-        $this->crear([
-            'nombre' => 'Luis Pérez', 'dui' => $this->dui('01234567'),
-            'email' => 'luis@example.com', 'telefono' => '2222-3333',
-        ])->assertCreated()->assertJsonPath('profesor.codigo', 'PROF-002');
+        $this->crear(['nombre' => 'Luis Pérez', 'dui' => $this->dui('01234567'), 'telefono' => '2222-3333'])
+            ->assertCreated()->assertJsonPath('profesor.codigo', 'PROF-002');
+    }
+
+    public function test_cuentas_disponibles_son_docentes_sin_profesor(): void
+    {
+        $libre = $this->usuario(User::ROL_DOCENTE, ['email' => 'libre@example.com']);
+        $usada = $this->usuario(User::ROL_DOCENTE, ['email' => 'usada@example.com']);
+        $this->usuario(User::ROL_ENCARGADO, ['email' => 'encargado@example.com']);
+        $this->crear(['user_id' => $usada->id])->assertCreated();
+
+        $this->como($this->director)->getJson('/api/profesores/cuentas-disponibles')->assertOk()
+            ->assertExactJson(['cuentas' => [['id' => $libre->id, 'email' => 'libre@example.com']]]);
+        $this->como($this->usuario(User::ROL_DOCENTE))->getJson('/api/profesores/cuentas-disponibles')->assertForbidden();
     }
 
     public function test_codigo_continua_desde_el_mayor_existente(): void
@@ -89,13 +101,11 @@ class ProfesorTest extends TestCase
 
     public function test_validaciones_al_crear(): void
     {
+        $this->crear(['user_id' => null])
+            ->assertStatus(422)->assertJsonPath('errors.user_id.0', 'Seleccione la cuenta de usuario del profesor.');
 
-        $this->crear(['email' => ''])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors(['email']);
-
-        $this->crear(['password' => ''])
-            ->assertStatus(422)->assertJsonValidationErrors(['password']);
+        $this->crear(['user_id' => 99999])
+            ->assertStatus(422)->assertJsonValidationErrors(['user_id']);
 
         $this->crear(['fecha_nacimiento' => now()->subYears(10)->toDateString()])
             ->assertStatus(422)->assertJsonValidationErrors(['fecha_nacimiento']);
@@ -106,47 +116,28 @@ class ProfesorTest extends TestCase
         $this->crear(['dui' => '12345678-0'])
             ->assertStatus(422)->assertJsonValidationErrors(['dui']);
 
-        // Nada quedó a medias
         $this->assertSame(0, Profesor::count());
-        $this->assertSame(1, User::count());
     }
 
-    public function test_correo_o_dui_de_otra_cuenta(): void
+    public function test_la_cuenta_debe_ser_docente_y_estar_libre(): void
     {
         $encargado = $this->usuario(User::ROL_ENCARGADO);
 
-        $this->crear(['email' => $encargado->email])
-            ->assertStatus(422)->assertJsonValidationErrors(['email']);
+        $this->crear(['user_id' => $encargado->id])
+            ->assertStatus(422)->assertJsonPath('errors.user_id.0', 'La cuenta seleccionada no tiene el rol DOCENTE.');
+        $this->crear(['user_id' => $this->director->id])
+            ->assertStatus(422)->assertJsonValidationErrors(['user_id']);
 
-        $this->assertSame(0, Profesor::count());
+        $docente = $this->usuario(User::ROL_DOCENTE);
+        $this->crear(['user_id' => $docente->id])->assertCreated();
+        // Esa cuenta ya tiene profesor
+        $this->crear(['user_id' => $docente->id, 'dui' => $this->dui('01234567'), 'telefono' => '2222-3333'])
+            ->assertStatus(422)->assertJsonPath('errors.user_id.0', 'La cuenta seleccionada ya está vinculada con otro profesor.');
+
+        $this->assertSame(1, Profesor::count());
     }
 
-    public function test_vincula_cuenta_docente_existente_sin_perfil(): void
-    {
-        $docente = $this->usuario(User::ROL_DOCENTE, ['email' => 'previa@example.com']);
-
-        $this->crear(['email' => 'previa@example.com', 'password' => null])
-            ->assertCreated()->assertJsonPath('profesor.user_id', $docente->id);
-
-        $this->assertSame(2, User::count());
-
-        // Esa cuenta ya tiene perfil
-        $this->crear(['email' => 'previa@example.com', 'dui' => $this->dui('01234567'), 'telefono' => '2222-3333'])
-            ->assertStatus(422)->assertJsonValidationErrors(['email']);
-    }
-
-    public function test_si_falla_el_perfil_no_queda_cuenta(): void
-    {
-        $this->crear()->assertCreated();
-
-        // Mismo teléfono: el perfil no pasa la validación
-        $this->crear(['nombre' => 'Otra', 'dui' => $this->dui('07654321'), 'email' => 'otra@example.com'])
-            ->assertStatus(422)->assertJsonValidationErrors(['telefono']);
-
-        $this->assertNull(User::where('email', 'otra@example.com')->first());
-    }
-
-    public function test_editar_no_permite_cambiar_codigo_dui_ni_cuenta(): void
+    public function test_editar_no_permite_cambiar_codigo_ni_dui_y_si_la_cuenta(): void
     {
         $id = $this->crear()->json('profesor.id');
         $profesor = Profesor::findOrFail($id);
@@ -159,8 +150,12 @@ class ProfesorTest extends TestCase
         $this->como($this->director)->putJson("/api/profesores/{$id}", array_merge($base, ['dui' => $this->dui('01234567')]))
             ->assertStatus(422)->assertJsonValidationErrors(['dui']);
 
+        // La cuenta se cambia solo por otra cuenta DOCENTE libre
         $this->como($this->director)->putJson("/api/profesores/{$id}", array_merge($base, ['user_id' => $this->director->id]))
             ->assertStatus(422)->assertJsonValidationErrors(['user_id']);
+        $nueva = $this->usuario(User::ROL_DOCENTE);
+        $this->como($this->director)->putJson("/api/profesores/{$id}", array_merge($base, ['user_id' => $nueva->id]))
+            ->assertOk()->assertJsonPath('profesor.user_id', $nueva->id);
 
         // El mismo DUI con otro formato no es un cambio
         $this->como($this->director)->putJson("/api/profesores/{$id}", array_merge($base, [
@@ -169,7 +164,8 @@ class ProfesorTest extends TestCase
             'telefono' => '6111-2222',
         ]))->assertOk()
             ->assertJsonPath('profesor.codigo', 'PROF-001')
-            ->assertJsonPath('profesor.nombre', 'Ana María López');
+            ->assertJsonPath('profesor.nombre', 'Ana María López')
+            ->assertJsonPath('profesor.user_id', $nueva->id);
 
         $profesor->refresh();
         $this->assertSame('6111-2222', $profesor->telefono);
@@ -179,8 +175,7 @@ class ProfesorTest extends TestCase
     {
         $this->crear()->assertCreated();
         $this->crear([
-            'nombre' => 'Luis Pérez', 'dui' => $this->dui('01234567'),
-            'email' => 'luis@example.com', 'telefono' => '2222-3333',
+            'nombre' => 'Luis Pérez', 'dui' => $this->dui('01234567'), 'telefono' => '2222-3333',
         ])->assertCreated();
 
         $buscar = fn ($t) => $this->como($this->director)->getJson('/api/profesores?buscar='.urlencode($t))->json('profesores');
@@ -192,16 +187,17 @@ class ProfesorTest extends TestCase
         $this->assertArrayNotHasKey('password', $buscar('Ana')[0]['user']);
     }
 
-    public function test_eliminar_borra_perfil_y_cuenta_salvo_con_asignaciones(): void
+    public function test_eliminar_borra_el_perfil_y_conserva_la_cuenta_salvo_con_asignaciones(): void
     {
         $id = $this->crear()->json('profesor.id');
         $userId = Profesor::findOrFail($id)->user_id;
 
         $this->como($this->director)->deleteJson("/api/profesores/{$id}")->assertOk();
         $this->assertNull(Profesor::find($id));
-        $this->assertNull(User::find($userId));
+        $this->assertNotNull(User::find($userId));
 
-        $id = $this->crear()->json('profesor.id');
+        // La cuenta queda libre para vincularla de nuevo
+        $id = $this->crear(['user_id' => $userId])->assertCreated()->json('profesor.id');
         $grado = DB::table('grados')->insertGetId(['nombre' => 'Primer grado']);
         DB::table('secciones')->insert([
             'nombre' => 'A', 'grado_id' => $grado, 'profesor_id' => $id,

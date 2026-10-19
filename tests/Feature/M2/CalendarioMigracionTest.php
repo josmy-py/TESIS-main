@@ -125,7 +125,8 @@ class CalendarioMigracionTest extends TestCase
         $periodos = DB::table('periodo_escolares')->orderBy('id')->get();
         $this->assertSame([['Primer trimestre', 1], ['Anual', 7]], $periodos->map(fn ($p) => [$p->nombre_periodo, (int) $p->nivel])->all());
         $this->assertSame([null, null], $periodos->pluck('anio_lectivo_id')->all());
-        $this->assertFalse(Schema::hasColumn('periodo_escolares', 'estado'));
+        // 000017 vuelve a agregar periodo_escolares.estado (pedido de Josmy, 19/10/2026): quedan pendientes
+        $this->assertSame(['pendiente', 'pendiente'], $periodos->pluck('estado')->all());
 
         // El diagnóstico lo identifica, sin modificar nada
         Artisan::call('siga:diagnostico-calendario');

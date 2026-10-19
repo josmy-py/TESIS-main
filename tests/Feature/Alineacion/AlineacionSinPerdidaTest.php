@@ -99,6 +99,9 @@ class AlineacionSinPerdidaTest extends TestCase
                         // Nombres anteriores pasan a su nombre oficial del catálogo
                         $anterior = ['2do grado' => 'Segundo grado', 'Parvularia 4' => 'Parvularia 4 años'][$anterior] ?? $anterior;
                     }
+                    if ($tabla === 'periodo_escolares' && $columna === 'estado') {
+                        $anterior = ['abierto' => 'en_curso'][$anterior] ?? $anterior; // 000017 (19/10/2026)
+                    }
                     if ($tabla === 'periodo_escolares' && $columna === 'nivel') {
                         $anterior = $antes[$tabla][$i]['numero'] ?? $anterior;
                     }
@@ -120,7 +123,8 @@ class AlineacionSinPerdidaTest extends TestCase
         $this->assertFalse(Schema::hasColumn('users', 'dui'));
         $this->assertFalse(Schema::hasColumn('plan_estudios', 'grado_id'));
         $this->assertFalse(Schema::hasColumn('profesores', 'especialidad'));
-        $this->assertFalse(Schema::hasColumn('periodo_escolares', 'estado'));
+        // 000017 vuelve a agregar periodo_escolares.estado (pedido de Josmy, 19/10/2026)
+        $this->assertTrue(Schema::hasColumn('periodo_escolares', 'estado'));
 
         // Lo que se quita queda respaldado
         $b = RespaldoAlineacion::leer('quitar-agregados');
