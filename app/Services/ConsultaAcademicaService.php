@@ -33,7 +33,7 @@ class ConsultaAcademicaService
     /** Matrícula aprobada pedida, o la del año más reciente; null si no tiene. */
     public function matriculaDe(Estudiante $estudiante, $matriculaId = null): array
     {
-        $aprobadas = Matricula::with(['seccion:id,nombre,turno,grado_id,anio_lectivo_id', 'seccion.grado:id,nombre', 'anioLectivo:id,nombre,estado,fecha_inicio'])
+        $aprobadas = Matricula::with(['seccion:id,nombre,turno,grado_id,anio_lectivo_id', 'seccion.grado:id,nombre', 'anioLectivo:id,anio,estado,fecha_inicio'])
             ->where('estudiante_id', $estudiante->id)
             ->where('estado', 'aprobado')
             ->whereNotNull('seccion_id')
@@ -50,7 +50,7 @@ class ConsultaAcademicaService
             'estudiante' => $estudiante->only(['id', 'nombre', 'nie']),
             'matriculas' => $aprobadas->map(fn (Matricula $m) => [
                 'id' => $m->id,
-                'anio' => $m->anioLectivo?->nombre,
+                'anio' => $m->anioLectivo?->anio,
                 'grado' => $m->seccion?->grado?->nombre,
                 'seccion' => $m->seccion?->nombre,
             ])->values(),
@@ -119,7 +119,7 @@ class ConsultaAcademicaService
         $datos = $this->estudiantes->obtener($estudianteId);
         $matriculas = $datos['estudiante']->matriculas;
         $finales = NotaFinal::whereIn('matricula_id', $matriculas->pluck('id'))->get()->keyBy('matricula_id');
-        $conductas = Conducta::with('periodo:id,nombre,nivel')->whereIn('matricula_id', $matriculas->pluck('id'))->get()->groupBy('matricula_id');
+        $conductas = Conducta::with('periodo:id,nombre_periodo,nivel')->whereIn('matricula_id', $matriculas->pluck('id'))->get()->groupBy('matricula_id');
 
         return [
             'estudiante' => $datos['estudiante'],
@@ -127,7 +127,7 @@ class ConsultaAcademicaService
                 'matricula_id' => $m->id,
                 'nota_final' => $finales->get($m->id)?->only(['promedio_anual', 'estado']),
                 'conducta' => ($conductas[$m->id] ?? collect())->sortBy('periodo.nivel')->map(fn ($c) => [
-                    'periodo' => $c->periodo?->nombre, 'descripcion' => $c->descripcion, 'valoracion' => $c->valoracion,
+                    'periodo' => $c->periodo?->nombre_periodo, 'descripcion' => $c->descripcion, 'valoracion' => $c->valoracion,
                 ])->values(),
             ])->values(),
         ];
@@ -138,12 +138,12 @@ class ConsultaAcademicaService
     {
         $matricula = Matricula::with([
             'estudiante:id,nombre,nie,user_id', 'seccion:id,nombre,turno,grado_id', 'seccion.grado:id,nombre',
-            'anioLectivo:id,nombre', 'especialidad:id,nombre', 'encargado:id,nombre,parentesco',
+            'anioLectivo:id,anio', 'especialidad:id,nombre', 'encargado:id,nombre,parentesco',
         ])
             ->when($propietarioId, fn ($q) => $q->whereHas('estudiante', fn ($e) => $e->where('user_id', $propietarioId)))
             ->findOrFail($matriculaId);
 
-        $anio = $matricula->anioLectivo?->nombre ?? $matricula->created_at?->format('Y');
+        $anio = $matricula->anioLectivo?->anio ?? $matricula->created_at?->format('Y');
 
         return [
             'comprobante' => sprintf('MAT-%s-%06d', $anio ?? '0000', $matricula->id),
@@ -164,7 +164,7 @@ class ConsultaAcademicaService
     private function periodos(Matricula $matricula): Collection
     {
         return PeriodoEscolar::where('anio_lectivo_id', $matricula->seccion?->anio_lectivo_id ?? 0)
-            ->orderBy('nivel')->get(['id', 'nombre', 'nivel']);
+            ->orderBy('nivel')->get(['id', 'nombre_periodo', 'nivel']);
     }
 
     private function notaFinal(Matricula $matricula): ?array

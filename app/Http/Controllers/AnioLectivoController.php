@@ -17,17 +17,20 @@ use Illuminate\Validation\ValidationException;
 class AnioLectivoController extends Controller
 {
     private const MENSAJES = [
-        'nombre.required' => 'El nombre del año lectivo es obligatorio.',
-        'nombre.max' => 'El nombre no debe exceder los 50 caracteres.',
-        'nombre.unique' => 'Ya existe un año lectivo con ese nombre.',
+        'anio.required' => 'El año es obligatorio.',
+        'anio.integer' => 'El año debe ser un número, por ejemplo 2027.',
+        'anio.between' => 'El año debe estar entre 2000 y 2100.',
+        'anio.unique' => 'Ya existe un año lectivo con ese año.',
         'fecha_inicio.required' => 'La fecha de inicio es obligatoria.',
         'fecha_inicio.date' => 'La fecha de inicio no es válida.',
         'fecha_fin.required' => 'La fecha de fin es obligatoria.',
         'fecha_fin.date' => 'La fecha de fin no es válida.',
         'fecha_fin.after' => 'La fecha de fin debe ser posterior a la fecha de inicio.',
-        'cantidad_periodos.integer' => 'La cantidad de periodos debe ser un número entero.',
-        'cantidad_periodos.min' => 'Debe haber al menos un periodo.',
-        'cantidad_periodos.max' => 'Un año lectivo admite como máximo '.CalendarioService::MAX_PERIODOS.' periodos.',
+        'nombre_periodo.required' => 'El nombre del periodo es obligatorio.',
+        'nombre_periodo.max' => 'El nombre del periodo no debe exceder los 50 caracteres.',
+        'nivel.required' => 'El nivel del periodo es obligatorio.',
+        'nivel.integer' => 'El nivel debe ser un número entero.',
+        'nivel.between' => 'El nivel debe estar entre 1 y '.CalendarioService::MAX_PERIODOS.'.',
     ];
 
     public function __construct(private CalendarioService $calendario)
@@ -66,10 +69,9 @@ class AnioLectivoController extends Controller
     {
         return $this->responder(function () use ($request) {
             $datos = $request->validate([
-                'nombre' => 'required|string|max:50|unique:anios_lectivos,nombre',
+                'anio' => 'required|integer|between:2000,2100|unique:anios_lectivos,anio',
                 'fecha_inicio' => 'required|date',
                 'fecha_fin' => 'required|date|after:fecha_inicio',
-                'cantidad_periodos' => 'nullable|integer|min:1|max:'.CalendarioService::MAX_PERIODOS,
             ], self::MENSAJES);
 
             return response()->json([
@@ -85,7 +87,7 @@ class AnioLectivoController extends Controller
             $this->calendario->obtener($id);
 
             $datos = $request->validate([
-                'nombre' => ['required', 'string', 'max:50', Rule::unique('anios_lectivos', 'nombre')->ignore($id)],
+                'anio' => ['required', 'integer', 'between:2000,2100', Rule::unique('anios_lectivos', 'anio')->ignore($id)],
                 'fecha_inicio' => 'required|date',
                 'fecha_fin' => 'required|date|after:fecha_inicio',
             ], self::MENSAJES);
@@ -128,8 +130,9 @@ class AnioLectivoController extends Controller
             $this->calendario->obtener($id);
 
             $datos = $request->validate([
-                'nombre' => 'nullable|string|max:50',
-            ]);
+                'nombre_periodo' => 'required|string|max:50',
+                'nivel' => 'required|integer|between:1,'.CalendarioService::MAX_PERIODOS,
+            ], self::MENSAJES);
 
             return response()->json([
                 'message' => 'Periodo agregado',

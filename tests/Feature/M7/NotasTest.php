@@ -41,7 +41,7 @@ class NotasTest extends TestCase
         $this->sembrarRoles();
         $this->catalogos = $this->catalogosBasicos();
         $this->anio = $this->anio('2026', AnioLectivo::ACTIVO);
-        $this->periodo = PeriodoEscolar::create(['nombre' => 'Primer trimestre', 'nivel' => 1, 'anio_lectivo_id' => $this->anio->id]);
+        $this->periodo = PeriodoEscolar::create(['nombre_periodo' => 'Primer trimestre', 'nivel' => 1, 'anio_lectivo_id' => $this->anio->id]);
         [$this->cuentaDocente, $this->docente] = $this->nuevoDocente();
         [, $otro] = $this->nuevoDocente();
 
@@ -69,7 +69,7 @@ class NotasTest extends TestCase
 
     private function anio(string $nombre, string $estado = AnioLectivo::INACTIVO): AnioLectivo
     {
-        $anio = AnioLectivo::create(['nombre' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30"]);
+        $anio = AnioLectivo::create(['anio' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30"]);
         $anio->forceFill(['estado' => $estado])->save();
 
         return $anio;
@@ -160,7 +160,7 @@ class NotasTest extends TestCase
     public function test_periodo_de_otro_anio_o_anio_inactivo(): void
     {
         $otroAnio = $this->anio('2027');
-        $ajeno = PeriodoEscolar::create(['nombre' => 'Primer trimestre', 'nivel' => 1, 'anio_lectivo_id' => $otroAnio->id]);
+        $ajeno = PeriodoEscolar::create(['nombre_periodo' => 'Primer trimestre', 'nivel' => 1, 'anio_lectivo_id' => $otroAnio->id]);
         $this->crear(['periodo_escolar_id' => $ajeno->id])->assertStatus(422)->assertJsonValidationErrors('periodo_escolar_id');
 
         $evaluacion = Evaluacion::create(['nombre' => 'Examen', 'porcentaje' => 30, 'periodo_escolar_id' => $this->periodo->id, 'asignacion_id' => $this->asignacion->id]);

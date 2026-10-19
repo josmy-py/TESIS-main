@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\PlanEstudio;
+use App\Support\NombreUnico;
 use App\Services\PlanEstudioService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
@@ -100,7 +102,7 @@ class PlanEstudioController extends Controller
     {
         try {
             $this->planEstudioService->obtener($id);
-            $plan = $this->planEstudioService->actualizar($id, $this->validar($request));
+            $plan = $this->planEstudioService->actualizar($id, $this->validar($request, (int) $id));
 
             return response()->json(['message' => 'Plan de estudio actualizado exitosamente', 'plan' => $plan], 200);
         } catch (ValidationException $e) {
@@ -148,10 +150,13 @@ class PlanEstudioController extends Controller
         }
     }
 
-    private function validar(Request $request): array
+    private function validar(Request $request, ?int $excepto = null): array
     {
+        $otros = PlanEstudio::query()->when($excepto, fn ($q) => $q->where('id', '<>', $excepto));
+
         return $request->validate([
-            'nombre' => 'required|string|max:30',
+            // Sin nombres repetidos (mayúsculas, tildes y espacios no cuentan)
+            'nombre' => ['required', 'string', 'max:30', NombreUnico::regla($otros, 'nombre', 'Ya existe un plan de estudio con ese nombre.')],
             'especialidad_id' => 'nullable|integer|exists:especialidades,id',
             'estado' => 'required|boolean',
             'fecha_inicio' => 'required|date',

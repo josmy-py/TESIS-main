@@ -91,8 +91,8 @@ class AsignacionPruebaSeeder extends Seeder
                 'nombre' => $nombre,
                 'especialidad_id' => null,
                 'estado' => true,
-                'fecha_inicio' => $anio->fecha_inicio ?? "{$anio->nombre}-01-15",
-                'fecha_fin' => $anio->fecha_fin ?? "{$anio->nombre}-11-30",
+                'fecha_inicio' => $anio->fecha_inicio ?? "{$anio->anio}-01-15",
+                'fecha_fin' => $anio->fecha_fin ?? "{$anio->anio}-11-30",
                 'fecha_aprobacion' => now()->toDateString(),
                 'descripcion' => 'Plan de ejemplo para pruebas (AsignacionPruebaSeeder)',
             ]);

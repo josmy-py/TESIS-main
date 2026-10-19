@@ -105,14 +105,14 @@ class CalendarioMigracionTest extends TestCase
         $this->assertFalse(Schema::hasColumn('periodo_escolares', 'numero'));
 
         // Años creados sin fechas inventadas, inactivos
-        $anios = DB::table('anios_lectivos')->orderBy('nombre')->get();
-        $this->assertSame(['2024', '2025', '2026'], $anios->pluck('nombre')->all());
+        $anios = DB::table('anios_lectivos')->orderBy('anio')->get();
+        $this->assertSame([2024, 2025, 2026], $anios->pluck('anio')->map(fn ($a) => (int) $a)->all());
         foreach ($anios as $anio) {
             $this->assertNull($anio->fecha_inicio);
             $this->assertNull($anio->fecha_fin);
             $this->assertSame('inactivo', $anio->estado);
         }
-        $id = $anios->pluck('id', 'nombre');
+        $id = $anios->pluck('id', 'anio');
 
         $this->assertSame($id['2025'], (int) DB::table('secciones')->where('id', $s2025)->value('anio_lectivo_id'));
         $this->assertSame($id['2026'], (int) DB::table('secciones')->where('id', $s2026)->value('anio_lectivo_id'));
@@ -123,7 +123,7 @@ class CalendarioMigracionTest extends TestCase
 
         // Periodos anteriores: se conservan nombre y nivel; no se les asigna año
         $periodos = DB::table('periodo_escolares')->orderBy('id')->get();
-        $this->assertSame([['Primer trimestre', 1], ['Anual', 7]], $periodos->map(fn ($p) => [$p->nombre, (int) $p->nivel])->all());
+        $this->assertSame([['Primer trimestre', 1], ['Anual', 7]], $periodos->map(fn ($p) => [$p->nombre_periodo, (int) $p->nivel])->all());
         $this->assertSame([null, null], $periodos->pluck('anio_lectivo_id')->all());
         $this->assertFalse(Schema::hasColumn('periodo_escolares', 'estado'));
 
@@ -143,10 +143,13 @@ class CalendarioMigracionTest extends TestCase
 
         // Un año migrado no se activa sin fechas; con fechas, sí
         $this->como($director)->postJson("/api/anios-lectivos/{$id['2026']}/activar")->assertStatus(409);
-        $this->como($director)->putJson("/api/anios-lectivos/{$id['2026']}", ['nombre' => '2026', 'fecha_inicio' => '2026-01-15', 'fecha_fin' => '2026-11-30'])->assertOk();
+        $this->como($director)->putJson("/api/anios-lectivos/{$id['2026']}", ['anio' => 2026, 'fecha_inicio' => '2026-01-15', 'fecha_fin' => '2026-11-30'])->assertOk();
+        $this->como($director)->postJson("/api/anios-lectivos/{$id['2026']}/activar")->assertStatus(409);
+        $nuevo = $this->como($director)->postJson("/api/anios-lectivos/{$id['2026']}/periodos", ['nombre_periodo' => 'Primer trimestre', 'nivel' => 1])->assertCreated()->json('periodo.id');
         $this->como($director)->postJson("/api/anios-lectivos/{$id['2026']}/activar")->assertOk();
 
         // 3. Revertir y volver a aplicar conserva los datos
+        DB::table('periodo_escolares')->where('id', $nuevo)->delete();
         $this->revertirM22();
         $this->assertSame($antes, $this->camposAntiguos());
         $this->assertSame(2, DB::table('periodo_escolares')->count());

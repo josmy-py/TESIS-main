@@ -7,20 +7,21 @@ use App\Models\Matricula;
 use App\Models\Padre;
 use App\Models\PeriodoEscolar;
 use App\Models\Seccion;
+use App\Support\NombreUnico;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
  * Años lectivos y periodos escolares (M2.2), con las columnas del diagrama ER:
- * anios_lectivos(nombre, fecha_inicio, fecha_fin, estado activo/inactivo/cierre)
- * y periodo_escolares(nombre, nivel = número del periodo, anio_lectivo_id).
+ * anios_lectivos(anio, fecha_inicio, fecha_fin, estado activo/inactivo/cierre)
+ * y periodo_escolares(nombre_periodo, nivel = número del periodo, anio_lectivo_id).
+ * El año se crea sin periodos; el director los agrega uno a uno (19/10/2026).
  *
  * Toda regla de estado se valida aquí. Una operación que no es posible en el
  * estado actual lanza \DomainException (el controlador responde 409).
  */
 class CalendarioService
 {
-    public const PERIODOS_POR_DEFECTO = 3;
     public const MAX_PERIODOS = 6;
 
     // --- Consultas ---
@@ -29,7 +30,7 @@ class CalendarioService
     {
         return AnioLectivo::with('periodos')
             ->orderByRaw("CASE estado WHEN 'activo' THEN 0 WHEN 'inactivo' THEN 1 ELSE 2 END")
-            ->orderByDesc('nombre')
+            ->orderByDesc('anio')
             ->get();
     }
 
@@ -52,19 +53,13 @@ class CalendarioService
 
     public function crear(array $datos): AnioLectivo
     {
-        $cantidad = (int) ($datos['cantidad_periodos'] ?? self::PERIODOS_POR_DEFECTO);
-
-        return DB::transaction(function () use ($datos, $cantidad) {
+        return DB::transaction(function () use ($datos) {
             $anio = AnioLectivo::create([
-                'nombre' => $datos['nombre'],
+                'anio' => $datos['anio'],
                 'fecha_inicio' => $datos['fecha_inicio'],
                 'fecha_fin' => $datos['fecha_fin'],
             ]);
             $anio->forceFill(['estado' => AnioLectivo::INACTIVO])->save();
-
-            for ($numero = 1; $numero <= $cantidad; $numero++) {
-                $this->nuevoPeriodo($anio, $numero);
-            }
 
             return $anio->load('periodos');
         });
@@ -80,7 +75,7 @@ class CalendarioService
             }
 
             $anio->fill([
-                'nombre' => $datos['nombre'],
+                'anio' => $datos['anio'],
                 'fecha_inicio' => $datos['fecha_inicio'],
                 'fecha_fin' => $datos['fecha_fin'],
             ]);
@@ -104,11 +99,14 @@ class CalendarioService
             if (! $anio->fechasValidas()) {
                 throw new \DomainException('Para activar el año lectivo debe tener fecha de inicio y fecha de fin, y la de inicio debe ser anterior.');
             }
+            if (! $anio->periodos()->exists()) {
+                throw new \DomainException('Agregue al menos un periodo escolar antes de activar el año lectivo.');
+            }
 
             // Un solo año activo: lo valida el sistema (el diagrama no tiene un índice para ello)
             $otro = AnioLectivo::where('estado', AnioLectivo::ACTIVO)->lockForUpdate()->first();
             if ($otro) {
-                throw new \DomainException("Ya existe un año lectivo activo ({$otro->nombre}). Ciérrelo antes de activar otro.");
+                throw new \DomainException("Ya existe un año lectivo activo ({$otro->anio}). Ciérrelo antes de activar otro.");
             }
 
             $this->cambiarEstado($anio, AnioLectivo::ACTIVO);
@@ -153,8 +151,21 @@ class CalendarioService
         });
     }
 
+    /**
+     * Catálogos que no cambian durante el año (especialidades y secciones,
+     * pedido de Josmy del 19/10/2026): con un año activo se rechaza la
+     * operación. ":anio" del mensaje se reemplaza por el año activo.
+     */
+    public function asegurarSinAnioActivo(string $mensaje): void
+    {
+        if ($activo = AnioLectivo::activo()) {
+            throw new \DomainException(str_replace(':anio', (string) $activo->anio, $mensaje));
+        }
+    }
+
     // --- Periodos ---
 
+    /** Datos: nombre_periodo y nivel (número del periodo dentro del año, de 1 a MAX_PERIODOS). */
     public function agregarPeriodo($anioId, array $datos): PeriodoEscolar
     {
         return DB::transaction(function () use ($anioId, $datos) {
@@ -163,13 +174,19 @@ class CalendarioService
             if ($anio->estado === AnioLectivo::CIERRE) {
                 throw new \DomainException('El año lectivo está cerrado y no admite periodos nuevos.');
             }
-
-            $numero = (int) $anio->periodos()->max('nivel') + 1;
-            if ($numero > self::MAX_PERIODOS) {
+            if ($anio->periodos()->count() >= self::MAX_PERIODOS) {
                 throw new \DomainException('Un año lectivo admite como máximo '.self::MAX_PERIODOS.' periodos.');
             }
+            if ($anio->periodos()->where('nivel', $datos['nivel'])->exists()) {
+                throw ValidationException::withMessages(['nivel' => "El año lectivo {$anio->anio} ya tiene un periodo con el nivel {$datos['nivel']}."]);
+            }
+            $this->asegurarNombrePeriodoLibre($anio, $datos['nombre_periodo']);
 
-            return $this->nuevoPeriodo($anio, $numero, $datos['nombre'] ?? null);
+            return PeriodoEscolar::create([
+                'nombre_periodo' => $datos['nombre_periodo'],
+                'nivel' => $datos['nivel'],
+                'anio_lectivo_id' => $anio->id,
+            ]);
         });
     }
 
@@ -182,8 +199,9 @@ class CalendarioService
             if ($anio->estado === AnioLectivo::CIERRE) {
                 throw new \DomainException('El año lectivo está cerrado y no puede modificarse.');
             }
+            $this->asegurarNombrePeriodoLibre($anio, $datos['nombre_periodo'], $periodo->id);
 
-            $periodo->fill(['nombre' => $datos['nombre']]);
+            $periodo->fill(['nombre_periodo' => $datos['nombre_periodo']]);
             $periodo->save();
 
             return $periodo;
@@ -201,9 +219,6 @@ class CalendarioService
             }
             if ($periodo->tieneRegistrosAcademicos()) {
                 throw new \DomainException('No se puede eliminar el periodo porque tiene registros académicos asociados.');
-            }
-            if ($periodo->nivel !== (int) $anio->periodos()->max('nivel')) {
-                throw new \DomainException('Solo puede eliminarse el último periodo del año, para conservar la numeración.');
             }
 
             $periodo->delete();
@@ -274,10 +289,10 @@ class CalendarioService
 
         return [
             'anios_sin_fechas' => AnioLectivo::where(fn ($q) => $q->whereNull('fecha_inicio')->orWhereNull('fecha_fin'))
-                ->orderBy('nombre')->get(['id', 'nombre', 'estado'])->toArray(),
-            'anios_sin_periodos' => AnioLectivo::doesntHave('periodos')->orderBy('nombre')->get(['id', 'nombre', 'estado'])->toArray(),
+                ->orderBy('anio')->get(['id', 'anio', 'estado'])->toArray(),
+            'anios_sin_periodos' => AnioLectivo::doesntHave('periodos')->orderBy('anio')->get(['id', 'anio', 'estado'])->toArray(),
             'periodos_sin_anio' => PeriodoEscolar::whereNull('anio_lectivo_id')->orWhereNull('nivel')
-                ->orderBy('id')->get(['id', 'nombre', 'nivel', 'anio_lectivo_id'])->toArray(),
+                ->orderBy('id')->get(['id', 'nombre_periodo', 'nivel', 'anio_lectivo_id'])->toArray(),
             'secciones_sin_anio' => Seccion::whereNull('anio_lectivo_id')->orderBy('id')->get(['id', 'nombre', 'grado_id'])->toArray(),
             'matriculas_sin_anio' => Matricula::whereNull('anio_lectivo_id')->orderBy('id')->get(['id', 'estudiante_id', 'seccion_id'])->toArray(),
             'matriculas_con_otro_anio_que_su_seccion' => Matricula::whereNotNull('seccion_id')->whereNotNull('anio_lectivo_id')->get(['id', 'anio_lectivo_id', 'seccion_id'])
@@ -291,7 +306,7 @@ class CalendarioService
 
     // --- Internos ---
 
-    /** Nombres trimestrales de la documentación; los periodos adicionales siguen la misma forma ordinal. */
+    /** Nombres trimestrales de la documentación (sugerencia del formulario y datos de prueba). */
     public static function nombrePredeterminado(int $numero): string
     {
         return match ($numero) {
@@ -305,13 +320,12 @@ class CalendarioService
         };
     }
 
-    private function nuevoPeriodo(AnioLectivo $anio, int $numero, ?string $nombre = null): PeriodoEscolar
+    // Sin distinguir mayúsculas, tildes ni espacios repetidos
+    private function asegurarNombrePeriodoLibre(AnioLectivo $anio, string $nombre, ?int $excepto = null): void
     {
-        return PeriodoEscolar::create([
-            'nombre' => $nombre ?: self::nombrePredeterminado($numero),
-            'anio_lectivo_id' => $anio->id,
-            'nivel' => $numero,
-        ]);
+        if (NombreUnico::ocupado($anio->periodos()->when($excepto, fn ($q) => $q->where('id', '<>', $excepto)), 'nombre_periodo', $nombre)) {
+            throw ValidationException::withMessages(['nombre_periodo' => "El año lectivo {$anio->anio} ya tiene un periodo llamado «{$nombre}»."]);
+        }
     }
 
     private function anioDelPeriodo(PeriodoEscolar $periodo): AnioLectivo

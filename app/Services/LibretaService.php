@@ -152,7 +152,7 @@ class LibretaService
 
         $sinNota = $filas->filter(fn ($f) => $f['faltan'] > 0);
         $error = match (true) {
-            abs($porcentaje - NotasService::PORCENTAJE_TOTAL) > 0.001 => "Las evaluaciones de {$periodo->nombre} suman {$porcentaje} %: deben sumar 100 % para generar la libreta.",
+            abs($porcentaje - NotasService::PORCENTAJE_TOTAL) > 0.001 => "Las evaluaciones de {$periodo->nombre_periodo} suman {$porcentaje} %: deben sumar 100 % para generar la libreta.",
             $filas->isEmpty() => 'La sección no tiene estudiantes con matrícula aprobada.',
             $sinNota->isNotEmpty() => 'Faltan notas de '.$sinNota->count().' estudiante(s): '.$sinNota->take(5)->map(fn ($f) => $f['matricula']->estudiante?->nombre)->implode(', ').($sinNota->count() > 5 ? '…' : '').'.',
             default => null,

@@ -81,7 +81,17 @@ class AlineacionSinPerdidaTest extends TestCase
                     if ($tabla === 'users' && $columna === 'rol_id') {
                         continue; // se comprueba abajo
                     }
-                    $anterior = $antes[$tabla][$i][$columna];
+                    // 19/10/2026: el año lectivo pasa a "anio" y el periodo a "nombre_periodo" (diagrama)
+                    $origen = ['anios_lectivos.anio' => 'nombre', 'periodo_escolares.nombre_periodo' => 'nombre']["{$tabla}.{$columna}"] ?? $columna;
+                    $anterior = $antes[$tabla][$i][$origen];
+                    if ($tabla === 'anios_lectivos' && $columna === 'anio') {
+                        $anterior = (int) $anterior;
+                        $valor = (int) $valor;
+                    }
+                    if ($tabla === 'estudiantes' && $columna === 'estado' && $anterior === 'inscrito'
+                        && DB::table('matriculas')->where('estudiante_id', $fila['id'])->where('estado', 'aprobado')->exists()) {
+                        $anterior = 'activo'; // 19/10/2026: con matrícula aprobada el estudiante queda activo
+                    }
                     if ($tabla === 'anios_lectivos' && $columna === 'estado') {
                         $anterior = ['planificado' => 'inactivo', 'cerrado' => 'cierre'][$anterior] ?? $anterior;
                     }

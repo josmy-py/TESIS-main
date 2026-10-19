@@ -28,9 +28,9 @@ Artisan::command('siga:grados-sin-orden', function () {
 // lectivo o con años que no coinciden). Solo lee; no modifica nada.
 Artisan::command('siga:diagnostico-calendario', function () {
     $secciones = [
-        'anios_sin_fechas' => ['Años lectivos sin fechas (no pueden activarse)', ['id', 'nombre', 'estado']],
-        'anios_sin_periodos' => ['Años lectivos sin periodos', ['id', 'nombre', 'estado']],
-        'periodos_sin_anio' => ['Periodos anteriores sin año lectivo o sin número (nivel)', ['id', 'nombre', 'nivel', 'anio_lectivo_id']],
+        'anios_sin_fechas' => ['Años lectivos sin fechas (no pueden activarse)', ['id', 'anio', 'estado']],
+        'anios_sin_periodos' => ['Años lectivos sin periodos (no pueden activarse)', ['id', 'anio', 'estado']],
+        'periodos_sin_anio' => ['Periodos anteriores sin año lectivo o sin número (nivel)', ['id', 'nombre_periodo', 'nivel', 'anio_lectivo_id']],
         'secciones_sin_anio' => ['Secciones sin año lectivo', ['id', 'nombre', 'grado_id']],
         'matriculas_sin_anio' => ['Matrículas sin año lectivo', ['id', 'estudiante_id', 'seccion_id']],
         'matriculas_con_otro_anio_que_su_seccion' => ['Matrículas con un año lectivo distinto al de su sección', ['id', 'anio_lectivo_id', 'seccion_id']],

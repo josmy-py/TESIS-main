@@ -2,158 +2,99 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
+use App\Http\Controllers\Concerns\RespondeErrores;
 use App\Models\Especialidad;
-use Illuminate\Validation\Rule;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Illuminate\Validation\ValidationException;
+use App\Services\CalendarioService;
+use App\Support\NombreUnico;
+use Illuminate\Http\Request;
 
+/**
+ * Especialidades. Consultas para cuentas con sesión; crear, editar y eliminar
+ * solo DIRECTOR (lo exigen las rutas) y solo mientras no haya un año lectivo
+ * activo (pedido de Josmy, 19/10/2026): durante el año las matrículas y los
+ * planes dependen de ellas.
+ */
 class EspecialidadController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
+    use RespondeErrores;
+
+    private const BLOQUEO = 'Hay un año lectivo activo (:anio): las especialidades no se pueden crear, modificar ni eliminar hasta que se cierre.';
+
+    public function __construct(private CalendarioService $calendario)
+    {
+    }
+
     public function index()
     {
-        try {
-            $espe = Especialidad::orderBy('id', 'desc')->get();
-            return response()->json(['especialidades' => $espe], 200);
-        } catch (\Exception $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'Error al obtener las especialidades',
-            ], 500);
-        }
+        return $this->responder(
+            fn () => response()->json(['especialidades' => Especialidad::orderBy('id', 'desc')->get()]),
+            'Error al obtener las especialidades'
+        );
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
-        try {
-            $request->validate([
-                'nombre' => 'required|string|max:50|unique:especialidades,nombre',
-            ],
-            [
-                'nombre.required' => 'El nombre del la especialidad es obligatorio.',
-                'nombre.max' => 'El nombre de la especialidad no debe exceder los 50 caracteres.',
-                'nombre.unique' => 'El nombre de la especialidad ya está registrado.',
-            ]);
+        return $this->responder(function () use ($request) {
+            $this->calendario->asegurarSinAnioActivo(self::BLOQUEO);
+            $datos = $this->validar($request);
 
-            $espe = Especialidad::create([
-                'nombre' => $request->nombre,
-            ]);
+            $espe = Especialidad::create(['nombre' => $datos['nombre']]);
 
-            return response()->json(['message' => 'Especialidad registrado exitosamente', 'especialidad' => $espe], 201);
-        } catch (ValidationException $e) {
-            return response()->json([
-                'message' => 'Error de validación',
-                'errors' => $e->errors()
-            ], 422);
-        } catch (\Exception $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'Error al crear la especialidad',
-            ], 500);
-        }
+            return response()->json(['message' => 'Especialidad registrada exitosamente', 'especialidad' => $espe], 201);
+        }, 'Error al crear la especialidad');
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function show(string $id)
     {
-        try {
-            $espe = Especialidad::findOrFail($id);
-            return response()->json(['especialidad' => $espe], 200);
-        } catch (ModelNotFoundException $e) {
-            return response()->json([
-                'message' => 'Error: Especialidad no encontrada',
-            ], 404);
-        }
+        return $this->responder(
+            fn () => response()->json(['especialidad' => Especialidad::findOrFail($id)]),
+            'Error al obtener la especialidad',
+            'Especialidad no encontrada'
+        );
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
     public function update(Request $request, string $id)
     {
-        try {
+        return $this->responder(function () use ($request, $id) {
             $espe = Especialidad::findOrFail($id);
+            $this->calendario->asegurarSinAnioActivo(self::BLOQUEO);
+            $datos = $this->validar($request, $espe->id);
 
-            $request->validate([
-                'nombre' => [
-                    'required',
-                    'string',
-                    'max:50',
-                    Rule::unique('especialidades', 'nombre')->ignore($id)
-                ],
-            ],
-            [
-                'nombre.required' => 'El nombre de la especialidad es obligatoria.',
-                'nombre.max' => 'El nombre de la especialidad no debe exceder los 50 caracteres.',
-                'nombre.unique' => 'El nombre de la especialidad ya existe.',
-            ]);
+            $espe->update(['nombre' => $datos['nombre']]);
 
-            $espe->update([
-                'nombre' => $request->nombre,
-            ]);
-
-            return response()->json(['message' => 'Especialidad actualizado exitosamente', 'especialidad' => $espe], 200);
-        } catch (ValidationException $e) {
-            return response()->json([
-                'message' => 'Error de validación',
-                'errors' => $e->errors()
-            ], 422);
-        } catch (ModelNotFoundException $e) {
-            return response()->json([
-                'message' => 'Error: Especialidad no encontrado',
-            ], 404);
-        } catch (\Exception $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'Error al actualizar la especialidad',
-            ], 500);
-        }
+            return response()->json(['message' => 'Especialidad actualizada exitosamente', 'especialidad' => $espe]);
+        }, 'Error al actualizar la especialidad', 'Especialidad no encontrada');
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(string $id)
     {
-        try {
+        return $this->responder(function () use ($id) {
             $espe = Especialidad::findOrFail($id);
+            $this->calendario->asegurarSinAnioActivo(self::BLOQUEO);
 
             if ($espe->matricula()->exists()) {
-                return response()->json([
-                    'message' => 'No se puede eliminar la especialidad porque tiene matriculas asociadas'
-                ], 409);
+                throw new \DomainException('No se puede eliminar la especialidad porque tiene matrículas asociadas.');
             }
-
             // M2.1.2: plan_estudios.especialidad_id también referencia la especialidad
             if ($espe->planesEstudios()->exists()) {
-                return response()->json([
-                    'message' => 'No se puede eliminar la especialidad porque tiene planes de estudio asociados'
-                ], 409);
+                throw new \DomainException('No se puede eliminar la especialidad porque tiene planes de estudio asociados.');
             }
 
             $espe->delete();
-            return response()->json(['message' => 'Especialidad eliminado exitosamente'], 200);
-        } catch (ModelNotFoundException $e) {
-            return response()->json([
-                'message' => 'Error: Especialidad no encontrado',
-            ], 404);
-        } catch (\Exception $e) {
-            report($e);
 
-            return response()->json([
-                'message' => 'Error al eliminar la especialidad',
-            ], 500);
-        }
+            return response()->json(['message' => 'Especialidad eliminada exitosamente']);
+        }, 'Error al eliminar la especialidad', 'Especialidad no encontrada');
+    }
+
+    private function validar(Request $request, ?int $excepto = null): array
+    {
+        $otras = Especialidad::query()->when($excepto, fn ($q) => $q->where('id', '<>', $excepto));
+
+        return $request->validate([
+            'nombre' => ['required', 'string', 'max:50', NombreUnico::regla($otras, 'nombre', 'Ya existe una especialidad con ese nombre.')],
+        ], [
+            'nombre.required' => 'El nombre de la especialidad es obligatorio.',
+            'nombre.max' => 'El nombre de la especialidad no debe exceder los 50 caracteres.',
+        ]);
     }
 }

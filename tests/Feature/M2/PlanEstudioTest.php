@@ -99,6 +99,24 @@ class PlanEstudioTest extends TestCase
         ]))->assertStatus(422)->assertJsonValidationErrors(['nombre', 'especialidad_id', 'fecha_fin', 'descripcion']);
     }
 
+    public function test_plan_y_asignatura_sin_nombres_repetidos(): void
+    {
+        $plan = $this->crearPlan();
+        $otro = $this->crearPlan(['nombre' => 'Plan Media 2026']);
+
+        // Mayúsculas, tildes y espacios no hacen distinto un nombre
+        $this->como($this->director)->postJson('/api/plan-estudios', $this->datosPlan(['nombre' => '  plan  basica 2026 ']))
+            ->assertStatus(422)->assertJsonPath('errors.nombre.0', 'Ya existe un plan de estudio con ese nombre.');
+        $this->como($this->director)->putJson("/api/plan-estudios/{$otro->id}", $this->datosPlan(['nombre' => 'PLAN BÁSICA 2026']))
+            ->assertStatus(422)->assertJsonValidationErrors('nombre');
+        $this->como($this->director)->putJson("/api/plan-estudios/{$plan->id}", $this->datosPlan(['descripcion' => 'Cambio']))->assertOk();
+
+        $this->como($this->director)->postJson('/api/asignaturas', ['nombre' => 'Matemática', 'plan_estudio_id' => $plan->id])->assertCreated();
+        $this->como($this->director)->postJson('/api/asignaturas', ['nombre' => ' matematica ', 'plan_estudio_id' => $plan->id])
+            ->assertStatus(422)->assertJsonValidationErrors('nombre');
+        $this->como($this->director)->postJson('/api/asignaturas', ['nombre' => 'Matematica', 'plan_estudio_id' => $otro->id])->assertCreated();
+    }
+
     public function test_planes_vigentes_y_no_vigentes(): void
     {
         $vigente = $this->crearPlan();

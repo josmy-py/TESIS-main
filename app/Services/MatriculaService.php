@@ -105,7 +105,7 @@ class MatriculaService
             ->with([
                 'estudiante:id,nombre,nie,user_id',
                 'especialidad:id,nombre',
-                'anioLectivo:id,nombre,estado',
+                'anioLectivo:id,anio,estado',
                 'seccion:id,nombre,turno,grado_id,capacidad',
                 'seccion.grado:id,nombre',
             ])
@@ -125,7 +125,7 @@ class MatriculaService
             'estudiante.padres:id,nombre,dui,telefono,email,user_id',
             'estudiante.distrito.municipio.departamento',
             'especialidad:id,nombre',
-            'anioLectivo:id,nombre,estado',
+            'anioLectivo:id,anio,estado',
             'seccion:id,nombre,turno,grado_id,capacidad,anio_lectivo_id',
             'seccion.grado:id,nombre',
             'encargado',
@@ -221,7 +221,7 @@ class MatriculaService
                 if ($seccionId) {
                     $anio = $matricula->anioLectivo ?? $this->calendario()->anioParaMatricula(null);
                     if ($anio->estado === AnioLectivo::CIERRE) {
-                        throw new \DomainException("El año lectivo {$anio->nombre} está cerrado.");
+                        throw new \DomainException("El año lectivo {$anio->anio} está cerrado.");
                     }
                     $seccion = $this->seccionDelAnio($seccionId, $anio);
                     $pedida = array_key_exists('especialidad_id', $datos) ? $this->especialidadPedida($datos) : PromocionService::id($matricula->especialidad_id);
@@ -311,7 +311,7 @@ class MatriculaService
 
             $anio = AnioLectivo::findOrFail($matricula->anio_lectivo_id);
             if ($anio->estado === AnioLectivo::CIERRE) {
-                throw new \DomainException("El año lectivo {$anio->nombre} está cerrado: no se aprueban matrículas.");
+                throw new \DomainException("El año lectivo {$anio->anio} está cerrado: no se aprueban matrículas.");
             }
 
             $estudiante = Estudiante::lockForUpdate()->findOrFail($matricula->estudiante_id);
@@ -337,7 +337,7 @@ class MatriculaService
             return $matricula;
         });
 
-        return $matricula->fresh(['seccion.grado:id,nombre', 'anioLectivo:id,nombre']);
+        return $matricula->fresh(['seccion.grado:id,nombre', 'anioLectivo:id,anio']);
     }
 
     /** Rechazar (solo DIRECTOR, pág. 64), con bitácora. */
@@ -380,7 +380,7 @@ class MatriculaService
         $vigente = Matricula::where('estudiante_id', $estudiante->id)->where('anio_lectivo_id', $anio->id)->whereIn('estado', self::VIGENTES)->first(['id', 'estado']);
 
         return [
-            'anio_lectivo' => $anio->only(['id', 'nombre', 'estado']),
+            'anio_lectivo' => $anio->only(['id', 'anio', 'estado']),
             'ingreso' => $opciones['ingreso'],
             // Cada grado con los turnos que aún tienen secciones con cupo (sin secciones o llenas, no aparece el turno)
             'grados' => \App\Models\Grado::whereIn('id', $opciones['grados'])->get(['id', 'nombre'])->sortBy('orden')->values()
@@ -391,7 +391,7 @@ class MatriculaService
             'repite' => (bool) ($opciones['repite'] ?? false),
             'especialidad_id' => $opciones['especialidad_id'] === false ? null : $opciones['especialidad_id'],
             'especialidad_libre' => $opciones['especialidad_id'] === false,
-            'mensaje' => $vigente ? "Ya tiene una matrícula {$vigente->estado} en {$anio->nombre}." : $opciones['mensaje'],
+            'mensaje' => $vigente ? "Ya tiene una matrícula {$vigente->estado} en {$anio->anio}." : $opciones['mensaje'],
             'permitido' => ! $vigente && ! $opciones['bloqueo'],
             'nie' => $estudiante->nie,
             'responsable' => $this->responsablePara($estudiante),
@@ -625,7 +625,7 @@ class MatriculaService
 
         if (! $seccion) {
             $nombreTurno = $turno === 'matutino' ? 'mañana' : 'tarde';
-            throw ValidationException::withMessages(['turno' => "No hay secciones con cupo de este grado en el turno de la {$nombreTurno} para {$anio->nombre}."]);
+            throw ValidationException::withMessages(['turno' => "No hay secciones con cupo de este grado en el turno de la {$nombreTurno} para {$anio->anio}."]);
         }
 
         return $seccion;
@@ -668,7 +668,7 @@ class MatriculaService
             ->exists();
 
         if ($existe) {
-            throw ValidationException::withMessages(['estudiante_id' => "{$estudiante->nombre} ya tiene una matrícula pendiente o aprobada en el año {$anio->nombre}."]);
+            throw ValidationException::withMessages(['estudiante_id' => "{$estudiante->nombre} ya tiene una matrícula pendiente o aprobada en el año {$anio->anio}."]);
         }
     }
 

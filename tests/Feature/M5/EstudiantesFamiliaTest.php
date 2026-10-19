@@ -57,7 +57,7 @@ class EstudiantesFamiliaTest extends TestCase
 
     private function anio(string $estado = AnioLectivo::ACTIVO): int
     {
-        return DB::table('anios_lectivos')->insertGetId(['nombre' => 'Año '.uniqid(), 'estado' => $estado]);
+        return DB::table('anios_lectivos')->insertGetId(['anio' => random_int(2000, 2100), 'estado' => $estado]);
     }
 
     // --- Estudiantes ---
@@ -105,7 +105,8 @@ class EstudiantesFamiliaTest extends TestCase
         $padre = $this->padreRegistrado('Padre');
         $madre = $this->padreRegistrado('Madre');
         $id = $this->como($this->a)->postJson('/api/estudiantes', $this->datosEstudiante(['padres' => [$padre, $madre]]))
-            ->assertCreated()->json('estudiante.id');
+            ->assertCreated()->assertJsonPath('estudiante.estado', 'inscrito')->json('estudiante.id');
+        $this->assertSame('inscrito', Estudiante::find($id)->estado);
         $this->assertSame(['Madre', 'Padre'], DB::table('parientes')->where('estudiante_id', $id)->orderBy('parentesco')->pluck('parentesco')->all());
 
         // Esos padres ya son de la familia de A: B no los usa

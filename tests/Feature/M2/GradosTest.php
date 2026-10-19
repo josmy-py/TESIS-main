@@ -65,7 +65,7 @@ class GradosTest extends TestCase
             'nombre' => 'Profe', 'dui' => '00000002-6', 'fecha_nacimiento' => '1990-01-01', 'codigo' => 'P1',
             'telefono' => '7000-0000', 'direccion' => 'X', 'user_id' => $this->usuario(User::ROL_DOCENTE)->id,
         ]);
-        $anio = DB::table('anios_lectivos')->insertGetId(['nombre' => '2026', 'estado' => 'inactivo']);
+        $anio = DB::table('anios_lectivos')->insertGetId(['anio' => 2026, 'estado' => 'inactivo']);
         DB::table('secciones')->insert(['nombre' => 'A', 'capacidad' => 30, 'turno' => 'matutino', 'grado_id' => $grado->id,
             'profesor_id' => $profesor, 'anio_lectivo_id' => $anio]);
 

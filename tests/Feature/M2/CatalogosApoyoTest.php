@@ -38,6 +38,39 @@ class CatalogosApoyoTest extends TestCase
             ->assertStatus(422)->assertJsonValidationErrors('nombre');
     }
 
+    public function test_especialidad_sin_nombres_repetidos(): void
+    {
+        $id = $this->como($this->director)->postJson('/api/especialidades', ['nombre' => 'Informática'])->assertCreated()->json('especialidad.id');
+
+        foreach (['informatica', '  INFORMÁTICA ', 'Informática'] as $nombre) {
+            $this->como($this->director)->postJson('/api/especialidades', ['nombre' => $nombre])
+                ->assertStatus(422)->assertJsonPath('errors.nombre.0', 'Ya existe una especialidad con ese nombre.');
+        }
+        $otra = $this->como($this->director)->postJson('/api/especialidades', ['nombre' => 'Contaduría'])->assertCreated()->json('especialidad.id');
+        $this->como($this->director)->putJson("/api/especialidades/{$otra}", ['nombre' => 'INFORMATICA'])->assertStatus(422);
+        // Guardar con su propio nombre no es duplicado
+        $this->como($this->director)->putJson("/api/especialidades/{$id}", ['nombre' => 'Informática'])->assertOk();
+        $this->assertSame(2, Especialidad::count());
+    }
+
+    public function test_especialidades_bloqueadas_con_anio_activo(): void
+    {
+        $id = Especialidad::create(['nombre' => 'General'])->id;
+        $anio = \App\Models\AnioLectivo::create(['anio' => 2027, 'fecha_inicio' => '2027-01-15', 'fecha_fin' => '2027-11-30']);
+        $anio->forceFill(['estado' => 'activo'])->save();
+        $bloqueo = 'Hay un año lectivo activo (2027): las especialidades no se pueden crear, modificar ni eliminar hasta que se cierre.';
+
+        $this->como($this->director)->postJson('/api/especialidades', ['nombre' => 'Nueva'])->assertStatus(409)->assertJsonPath('message', $bloqueo);
+        $this->como($this->director)->putJson("/api/especialidades/{$id}", ['nombre' => 'Otra'])->assertStatus(409)->assertJsonPath('message', $bloqueo);
+        $this->como($this->director)->deleteJson("/api/especialidades/{$id}")->assertStatus(409)->assertJsonPath('message', $bloqueo);
+        $this->como($this->director)->getJson('/api/especialidades')->assertOk()->assertJsonCount(1, 'especialidades');
+        $this->assertSame('General', Especialidad::find($id)->nombre);
+
+        // Cerrado el año, se puede volver a modificar
+        $anio->forceFill(['estado' => 'cierre'])->save();
+        $this->como($this->director)->putJson("/api/especialidades/{$id}", ['nombre' => 'Otra'])->assertOk();
+    }
+
     public function test_especialidad_con_matriculas_o_planes_no_se_elimina(): void
     {
         $catalogos = $this->catalogosBasicos();
@@ -52,7 +85,7 @@ class CatalogosApoyoTest extends TestCase
             'fecha_inicio' => '2026-01-15', 'fecha_fin' => '2026-11-30', 'descripcion' => 'X', 'fecha_aprobacion' => '2025-12-01',
         ]);
         $this->como($this->director)->deleteJson("/api/especialidades/{$conPlan->id}")->assertStatus(409)
-            ->assertJsonPath('message', 'No se puede eliminar la especialidad porque tiene planes de estudio asociados');
+            ->assertJsonPath('message', 'No se puede eliminar la especialidad porque tiene planes de estudio asociados.');
         $this->assertSame(2, Especialidad::count());
 
         $libre = Especialidad::create(['nombre' => 'Libre']);

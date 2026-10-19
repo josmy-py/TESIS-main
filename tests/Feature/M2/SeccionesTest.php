@@ -40,7 +40,8 @@ class SeccionesTest extends TestCase
         $this->director = $this->usuario(User::ROL_DIRECTOR);
         $this->encargado = $this->usuario(User::ROL_ENCARGADO);
         $this->catalogos = $this->catalogosBasicos();
-        $this->anio = $this->anio('2026', AnioLectivo::ACTIVO);
+        // Inactivo: con un año activo las secciones no se crean ni modifican (19/10/2026)
+        $this->anio = $this->anio('2026');
         $this->primero = Grado::create(['nombre' => 'Primer grado']);
         $this->segundo = Grado::create(['nombre' => 'Segundo grado']);
         $this->profesor = $this->docente();
@@ -48,7 +49,7 @@ class SeccionesTest extends TestCase
 
     private function anio(string $nombre, string $estado = AnioLectivo::INACTIVO): AnioLectivo
     {
-        $anio = AnioLectivo::create(['nombre' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30"]);
+        $anio = AnioLectivo::create(['anio' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30"]);
         $anio->forceFill(['estado' => $estado])->save();
 
         return $anio;
@@ -279,6 +280,7 @@ class SeccionesTest extends TestCase
         $v = $this->crear(['nombre' => 'A', 'grado_id' => $this->segundo->id, 'turno' => 'vespertino', 'profesor_id' => $this->docente()->id])->json('seccion.id');
         $this->crear(['anio_lectivo_id' => $otroAnio->id]);
         $this->matricular($a);
+        $this->anio->forceFill(['estado' => AnioLectivo::ACTIVO])->save();
 
         // Año activo, en orden académico: Primer grado A, Segundo grado B (matutino), Segundo grado A (vespertino)
         $this->como($this->director)->getJson('/api/secciones')->assertOk()
@@ -307,8 +309,25 @@ class SeccionesTest extends TestCase
         $this->como($this->director)->getJson("/api/secciones/{$id}")->assertOk()
             ->assertJsonPath('seccion.matriculados', 1)
             ->assertJsonPath('seccion.cupos_disponibles', 9)
-            ->assertJsonPath('seccion.anio_lectivo.nombre', '2026');
+            ->assertJsonPath('seccion.anio_lectivo.anio', 2026);
         $this->como($this->director)->getJson('/api/secciones/999')->assertNotFound();
+    }
+
+    public function test_con_anio_activo_no_se_crean_modifican_ni_eliminan(): void
+    {
+        $id = $this->crear()->assertCreated()->json('seccion.id');
+        $this->anio->forceFill(['estado' => AnioLectivo::ACTIVO])->save();
+        $bloqueo = 'Hay un año lectivo activo (2026): las secciones no se pueden crear, modificar ni eliminar hasta que se cierre.';
+
+        // También para un año planificado: el pedido es bloquear mientras haya un año activo
+        $planificado = $this->anio('2027');
+        $this->crear(['nombre' => 'B', 'anio_lectivo_id' => $planificado->id])->assertStatus(409)->assertJsonPath('message', $bloqueo);
+        $this->como($this->director)->putJson("/api/secciones/{$id}", $this->datos(['capacidad' => 20]))->assertStatus(409)->assertJsonPath('message', $bloqueo);
+        $this->como($this->director)->deleteJson("/api/secciones/{$id}")->assertStatus(409)->assertJsonPath('message', $bloqueo);
+        $this->assertSame(30, Seccion::find($id)->capacidad);
+
+        // La consulta sigue disponible
+        $this->como($this->director)->getJson('/api/secciones')->assertOk()->assertJsonCount(1, 'secciones');
     }
 
     public function test_solo_el_director_gestiona_secciones(): void
@@ -338,7 +357,7 @@ class SeccionesTest extends TestCase
         $this->anio->forceFill(['estado' => AnioLectivo::CIERRE])->save();
         $this->seed([RoleSeeder::class, UsuarioPruebaSeeder::class, ProfesorPruebaSeeder::class, SeccionPruebaSeeder::class]);
 
-        $prueba = AnioLectivo::where('nombre', SeccionPruebaSeeder::ANIO_PRUEBA)->first();
+        $prueba = AnioLectivo::where('anio', SeccionPruebaSeeder::ANIO_PRUEBA)->first();
         $this->assertSame(AnioLectivo::INACTIVO, $prueba->estado);
         $this->assertTrue($prueba->periodos()->exists());
         $this->assertSame(2, Seccion::where('anio_lectivo_id', $prueba->id)->count());

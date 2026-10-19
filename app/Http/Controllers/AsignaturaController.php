@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\NombreUnico;
 use Illuminate\Http\Request;
 use App\Models\Asignatura;
 use Illuminate\Validation\Rule;
@@ -53,6 +54,7 @@ class AsignaturaController extends Controller
                     'string',
                     'max:50',
                     Rule::unique('asignaturas', 'nombre')->where('plan_estudio_id', $request->plan_estudio_id),
+                    NombreUnico::regla(Asignatura::where('plan_estudio_id', $request->plan_estudio_id), 'nombre', self::MENSAJES['nombre.unique']),
                 ],
             ], self::MENSAJES);
 
@@ -106,6 +108,7 @@ class AsignaturaController extends Controller
                     'string',
                     'max:50',
                     Rule::unique('asignaturas', 'nombre')->where('plan_estudio_id', $request->plan_estudio_id)->ignore($id),
+                    NombreUnico::regla(Asignatura::where('plan_estudio_id', $request->plan_estudio_id)->where('id', '<>', $id), 'nombre', self::MENSAJES['nombre.unique']),
                 ],
             ], self::MENSAJES);
 

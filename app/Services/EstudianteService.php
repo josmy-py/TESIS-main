@@ -42,7 +42,7 @@ class EstudianteService
                 'distrito.municipio:id,nombre,departamento_id',
                 'distrito.municipio.departamento:id,nombre',
                 'ultimaMatricula' => fn ($q) => $q->select('matriculas.id', 'matriculas.estudiante_id', 'matriculas.estado', 'matriculas.anio_lectivo_id', 'matriculas.seccion_id'),
-                'ultimaMatricula.anioLectivo:id,nombre',
+                'ultimaMatricula.anioLectivo:id,anio',
                 'ultimaMatricula.seccion:id,nombre,grado_id',
                 'ultimaMatricula.seccion.grado:id,nombre',
             ])
@@ -59,7 +59,7 @@ class EstudianteService
             'distrito.municipio.departamento',
             'padres:id,nombre,dui,telefono,email,user_id',
             'matriculas' => fn ($q) => $q->orderByDesc('id'),
-            'matriculas.anioLectivo:id,nombre,estado',
+            'matriculas.anioLectivo:id,anio,estado',
             'matriculas.seccion:id,nombre,turno,grado_id',
             'matriculas.seccion.grado:id,nombre',
             'matriculas.especialidad:id,nombre',
@@ -96,6 +96,8 @@ class EstudianteService
             'direccion' => $data['direccion'],
             'canton' => $data['canton'] ?? null,
             'user_id' => $data['user_id'],
+            // Inscrito hasta que la dirección apruebe su matrícula; entonces pasa a activo
+            'estado' => 'inscrito',
         ]);
     }
 

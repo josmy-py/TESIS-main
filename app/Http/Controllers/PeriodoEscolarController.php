@@ -29,10 +29,10 @@ class PeriodoEscolarController extends Controller
             PeriodoEscolar::findOrFail($id);
 
             $datos = $request->validate([
-                'nombre' => 'required|string|max:50',
+                'nombre_periodo' => 'required|string|max:50',
             ], [
-                'nombre.required' => 'El nombre del periodo es obligatorio.',
-                'nombre.max' => 'El nombre no debe exceder los 50 caracteres.',
+                'nombre_periodo.required' => 'El nombre del periodo es obligatorio.',
+                'nombre_periodo.max' => 'El nombre del periodo no debe exceder los 50 caracteres.',
             ]);
 
             return response()->json([

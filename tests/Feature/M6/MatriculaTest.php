@@ -81,7 +81,7 @@ class MatriculaTest extends TestCase
 
     private function anio(string $nombre, string $estado = AnioLectivo::INACTIVO): AnioLectivo
     {
-        $anio = AnioLectivo::create(['nombre' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30"]);
+        $anio = AnioLectivo::create(['anio' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30"]);
         $anio->forceFill(['estado' => $estado])->save();
 
         return $anio;
@@ -148,7 +148,7 @@ class MatriculaTest extends TestCase
     /** Matrícula aprobada de un año anterior (cerrado) con su nota anual. */
     private function historial(Estudiante $estudiante, Grado $grado, ?string $nota = 'Aprobada', ?int $especialidadId = null): int
     {
-        $anterior = AnioLectivo::where('nombre', '2026')->first() ?? $this->anio('2026', AnioLectivo::CIERRE);
+        $anterior = AnioLectivo::where('anio', 2026)->first() ?? $this->anio('2026', AnioLectivo::CIERRE);
         $seccion = Seccion::where('anio_lectivo_id', $anterior->id)->where('grado_id', $grado->id)->first()
             ?? $this->seccion($grado, 'A', 30, $anterior);
         $id = $this->matriculaDe($estudiante, $this->catalogos, [

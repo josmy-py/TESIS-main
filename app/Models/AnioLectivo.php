@@ -19,13 +19,15 @@ class AnioLectivo extends Model
 
     protected $table = 'anios_lectivos';
 
+    // anio: el año lectivo (2027), como la columna "anio" del diagrama
     protected $fillable = [
-        'nombre',
+        'anio',
         'fecha_inicio',
         'fecha_fin',
     ];
 
     protected $casts = [
+        'anio' => 'integer',
         'fecha_inicio' => 'date:Y-m-d',
         'fecha_fin' => 'date:Y-m-d',
     ];

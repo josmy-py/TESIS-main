@@ -55,7 +55,7 @@ class PromocionService
         }
 
         $grado = $anterior->seccion?->grado;
-        $anioAnterior = $anterior->anioLectivo?->nombre ?? '(año sin registrar)';
+        $anioAnterior = $anterior->anioLectivo?->anio ?? '(año sin registrar)';
         if (! $grado || $grado->orden === null) {
             return $bloqueo("No se puede determinar el grado de la matrícula aprobada de {$anioAnterior}: no tiene sección o su grado no está en el catálogo oficial.");
         }

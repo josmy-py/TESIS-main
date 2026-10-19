@@ -30,7 +30,7 @@ class ReporteService
     public function seccion(User $user, $seccionId): Seccion
     {
         return $user->esDirector()
-            ? Seccion::with(['grado:id,nombre', 'anioLectivo:id,nombre,estado'])->findOrFail($seccionId)
+            ? Seccion::with(['grado:id,nombre', 'anioLectivo:id,anio,estado'])->findOrFail($seccionId)
             : $this->conducta->seccionPropia($user, $seccionId);
     }
 

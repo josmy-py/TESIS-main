@@ -55,7 +55,7 @@ class CalendarioMatriculaTest extends TestCase
 
     private function anio(string $nombre, string $estado = AnioLectivo::INACTIVO): AnioLectivo
     {
-        $anio = AnioLectivo::create(['nombre' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30"]);
+        $anio = AnioLectivo::create(['anio' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30"]);
         $anio->forceFill(['estado' => $estado])->save();
 
         return $anio;
@@ -89,7 +89,8 @@ class CalendarioMatriculaTest extends TestCase
 
     public function test_seccion_pertenece_a_un_anio_lectivo(): void
     {
-        $anio = $this->anio('2027', AnioLectivo::ACTIVO);
+        // Las secciones se preparan sin año activo (19/10/2026)
+        $anio = $this->anio('2027');
 
         $this->seccion(['anio_lectivo_id' => $anio->id])->assertCreated()
             ->assertJsonPath('seccion.anio_lectivo_id', $anio->id);
@@ -113,10 +114,11 @@ class CalendarioMatriculaTest extends TestCase
     public function test_secciones_disponibles_usan_el_anio_lectivo_y_no_el_reloj(): void
     {
         // Año activo distinto del año del servidor
-        $activo = $this->anio((string) (now()->year + 1), AnioLectivo::ACTIVO);
+        $activo = $this->anio((string) (now()->year + 1));
         $inactivo = $this->anio((string) (now()->year + 2));
         $a = $this->seccion(['anio_lectivo_id' => $activo->id])->json('seccion.id');
         $b = $this->seccion(['nombre' => 'B', 'anio_lectivo_id' => $inactivo->id])->json('seccion.id');
+        $activo->forceFill(['estado' => AnioLectivo::ACTIVO])->save();
 
         // Una matrícula de la sección A ocupa un cupo
         $this->matriculaDe($this->estudianteDe($this->encargado, $this->catalogos['distrito']), $this->catalogos, [
@@ -220,7 +222,7 @@ class CalendarioMatriculaTest extends TestCase
 
     public function test_seccion_con_matriculas_no_cambia_de_anio(): void
     {
-        $a = $this->anio('2027', AnioLectivo::ACTIVO);
+        $a = $this->anio('2027');
         $b = $this->anio('2028');
         $seccion = $this->seccion(['anio_lectivo_id' => $a->id])->json('seccion.id');
         $this->matriculaDe($this->estudianteDe($this->encargado, $this->catalogos['distrito']), $this->catalogos, [

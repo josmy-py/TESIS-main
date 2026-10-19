@@ -64,7 +64,7 @@ class AsignacionesTest extends TestCase
 
     private function anio(string $nombre, string $estado = AnioLectivo::INACTIVO): AnioLectivo
     {
-        $anio = AnioLectivo::create(['nombre' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30"]);
+        $anio = AnioLectivo::create(['anio' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30"]);
         $anio->forceFill(['estado' => $estado])->save();
 
         return $anio;
@@ -115,13 +115,13 @@ class AsignacionesTest extends TestCase
 
     private function conEvaluacion(int $asignacionId): void
     {
-        $periodo = DB::table('periodo_escolares')->insertGetId(['nombre' => 'Primer trimestre', 'nivel' => 1, 'anio_lectivo_id' => $this->anio->id]);
+        $periodo = DB::table('periodo_escolares')->insertGetId(['nombre_periodo' => 'Primer trimestre', 'nivel' => 1, 'anio_lectivo_id' => $this->anio->id]);
         DB::table('evaluaciones')->insert(['nombre' => 'Examen', 'porcentaje' => 35, 'periodo_escolar_id' => $periodo, 'asignacion_id' => $asignacionId]);
     }
 
     private function conBoleta(int $asignacionId): void
     {
-        $periodo = DB::table('periodo_escolares')->insertGetId(['nombre' => 'Segundo trimestre', 'nivel' => 2, 'anio_lectivo_id' => $this->anio->id]);
+        $periodo = DB::table('periodo_escolares')->insertGetId(['nombre_periodo' => 'Segundo trimestre', 'nivel' => 2, 'anio_lectivo_id' => $this->anio->id]);
         $matricula = $this->matriculaDe($this->estudianteDe($this->encargado, $this->catalogos['distrito']), $this->catalogos, [
             'anio_lectivo_id' => $this->anio->id, 'seccion_id' => $this->seccion->id, 'estado' => 'aprobado',
         ]);
@@ -418,7 +418,7 @@ class AsignacionesTest extends TestCase
 
         $this->como($this->docente->user)->getJson('/api/docente/carga')->assertOk()
             ->assertJsonPath('profesor.codigo', $this->docente->codigo)
-            ->assertJsonPath('anio_lectivo.nombre', '2026')
+            ->assertJsonPath('anio_lectivo.anio', 2026)
             ->assertJsonCount(2, 'asignaciones')
             ->assertJsonCount(1, 'secciones')
             ->assertJsonPath('secciones.0.seccion.matriculados', 1)

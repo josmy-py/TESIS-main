@@ -51,7 +51,7 @@ class NotasService
     {
         return PeriodoEscolar::where('anio_lectivo_id', $asignacion->seccion?->anio_lectivo_id ?? 0)
             ->orderBy('nivel')
-            ->get(['id', 'nombre', 'nivel', 'anio_lectivo_id']);
+            ->get(['id', 'nombre_periodo', 'nivel', 'anio_lectivo_id']);
     }
 
     /** Evaluaciones de la asignación en un periodo, con su avance de calificaciones. */
@@ -99,8 +99,8 @@ class NotasService
 
         if ($porcentaje > $disponible + 0.001) {
             throw ValidationException::withMessages(['porcentaje' => $disponible <= 0
-                ? "Las evaluaciones de {$periodo->nombre} ya suman 100 %."
-                : "Solo queda {$this->texto($disponible)} % disponible en {$periodo->nombre}."]);
+                ? "Las evaluaciones de {$periodo->nombre_periodo} ya suman 100 %."
+                : "Solo queda {$this->texto($disponible)} % disponible en {$periodo->nombre_periodo}."]);
         }
     }
 
@@ -126,7 +126,7 @@ class NotasService
         $notas = Calificacion::where('evaluacion_id', $evaluacion->id)->pluck('nota_obtenida', 'matricula_id');
 
         return [
-            'evaluacion' => $evaluacion->load('periodo:id,nombre,nivel,anio_lectivo_id'),
+            'evaluacion' => $evaluacion->load('periodo:id,nombre_periodo,nivel,anio_lectivo_id'),
             'editable' => $evaluacion->periodo->permiteRegistros(),
             'estudiantes' => $this->obtenerEstudiantes($evaluacion->asignacion)->map(fn (Matricula $m) => [
                 'matricula_id' => $m->id,

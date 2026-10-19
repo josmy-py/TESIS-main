@@ -98,7 +98,7 @@ class LibretaTest extends TestCase
         $this->assertSame('Reprobada', $zoila->estado);
 
         // La promoción (M6) ya puede usar la nota final
-        $siguiente = AnioLectivo::create(['nombre' => '2027', 'fecha_inicio' => '2027-01-15', 'fecha_fin' => '2027-11-30']);
+        $siguiente = AnioLectivo::create(['anio' => '2027', 'fecha_inicio' => '2027-01-15', 'fecha_fin' => '2027-11-30']);
         $opciones = app(PromocionService::class)->opciones(Estudiante::find($this->estudiantes['Zoila Pérez']->id), $siguiente);
         $this->assertStringContainsString('debe repetir', $opciones['mensaje']);
     }

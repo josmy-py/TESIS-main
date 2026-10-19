@@ -11,7 +11,7 @@ use Illuminate\Database\Seeder;
 
 class SeccionPruebaSeeder extends Seeder
 {
-    public const ANIO_PRUEBA = '2027';
+    public const ANIO_PRUEBA = 2027;
 
     /**
      * Secciones de ejemplo (M2.4) a cargo de docente@siga.test (ProfesorPruebaSeeder).
@@ -65,16 +65,22 @@ class SeccionPruebaSeeder extends Seeder
     private function anioLectivo(): ?AnioLectivo
     {
         $anio = AnioLectivo::activo()
-            ?? AnioLectivo::where('estado', '<>', AnioLectivo::CIERRE)->orderByDesc('nombre')->first();
+            ?? AnioLectivo::where('estado', '<>', AnioLectivo::CIERRE)->orderByDesc('anio')->first();
 
-        if ($anio || AnioLectivo::where('nombre', self::ANIO_PRUEBA)->exists()) {
+        if ($anio || AnioLectivo::where('anio', self::ANIO_PRUEBA)->exists()) {
             return $anio;
         }
 
-        return app(CalendarioService::class)->crear([
-            'nombre' => self::ANIO_PRUEBA,
+        $calendario = app(CalendarioService::class);
+        $anio = $calendario->crear([
+            'anio' => self::ANIO_PRUEBA,
             'fecha_inicio' => self::ANIO_PRUEBA.'-01-15',
             'fecha_fin' => self::ANIO_PRUEBA.'-11-30',
         ]);
+        foreach ([1, 2, 3] as $nivel) {
+            $calendario->agregarPeriodo($anio->id, ['nombre_periodo' => CalendarioService::nombrePredeterminado($nivel), 'nivel' => $nivel]);
+        }
+
+        return $anio->fresh('periodos');
     }
 }

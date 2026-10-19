@@ -123,7 +123,7 @@ class AsignacionService
         return $this->guardando(function () use ($profesorId, $anioLectivoId, $items, $autor) {
             $anio = AnioLectivo::findOrFail($anioLectivoId);
             if ($anio->estado === AnioLectivo::CIERRE) {
-                throw ValidationException::withMessages(['anio_lectivo_id' => "El año lectivo {$anio->nombre} está cerrado y su carga académica no puede modificarse."]);
+                throw ValidationException::withMessages(['anio_lectivo_id' => "El año lectivo {$anio->anio} está cerrado y su carga académica no puede modificarse."]);
             }
 
             // Sin materias marcadas solo se libera la carga; no hace falta que la cuenta siga activa
@@ -138,7 +138,7 @@ class AsignacionService
             foreach ($deseadas as $item) {
                 $seccion = $secciones->get($item['seccion_id']);
                 if (! $seccion || (int) $seccion->anio_lectivo_id !== (int) $anio->id) {
-                    throw ValidationException::withMessages(['asignaciones' => "Todas las secciones deben pertenecer al año lectivo {$anio->nombre}."]);
+                    throw ValidationException::withMessages(['asignaciones' => "Todas las secciones deben pertenecer al año lectivo {$anio->anio}."]);
                 }
             }
 
@@ -189,7 +189,7 @@ class AsignacionService
         if (! $profesor || ! $anio) {
             return [
                 'profesor' => $profesor?->only(['id', 'codigo', 'nombre']),
-                'anio_lectivo' => $anio?->only(['id', 'nombre', 'estado']),
+                'anio_lectivo' => $anio?->only(['id', 'anio', 'estado']),
                 'asignaciones' => [],
                 'secciones' => [],
             ];
@@ -210,7 +210,7 @@ class AsignacionService
 
         return [
             'profesor' => $profesor->only(['id', 'codigo', 'nombre']),
-            'anio_lectivo' => $anio->only(['id', 'nombre', 'estado']),
+            'anio_lectivo' => $anio->only(['id', 'anio', 'estado']),
             'asignaciones' => $asignaciones,
             'secciones' => $secciones,
         ];
@@ -339,7 +339,7 @@ class AsignacionService
 
         Log::channel('asignaciones')->info($accion, $extra + [
             'asignacion_id' => $asignacion->id,
-            'anio_lectivo' => $asignacion->seccion?->anioLectivo?->nombre,
+            'anio_lectivo' => $asignacion->seccion?->anioLectivo?->anio,
             'seccion' => $this->etiquetaSeccion($asignacion->seccion),
             'materia' => $asignacion->asignatura?->nombre,
             'docente' => $asignacion->profesor ? "{$asignacion->profesor->codigo} {$asignacion->profesor->nombre}" : null,
@@ -356,7 +356,7 @@ class AsignacionService
             'asignatura.planEstudio.especialidad:id,nombre',
             'seccion:id,nombre,turno,capacidad,grado_id,anio_lectivo_id,profesor_id',
             'seccion.grado:id,nombre',
-            'seccion.anioLectivo:id,nombre,estado',
+            'seccion.anioLectivo:id,anio,estado',
         ])->withCount(['evaluaciones', 'boletas']);
     }
 

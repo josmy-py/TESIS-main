@@ -8,8 +8,9 @@ class PeriodoEscolar extends Model
 {
     protected $table = 'periodo_escolares';
 
+    // Columnas del diagrama: nombre_periodo y nivel (más el año lectivo al que pertenece)
     protected $fillable = [
-        'nombre',
+        'nombre_periodo',
         'nivel',
         'anio_lectivo_id',
     ];

@@ -13,7 +13,8 @@ use Tests\TestCase;
 
 /**
  * M2.2: años lectivos y periodos escolares (reglas de estado y permisos), con
- * las columnas del diagrama ER.
+ * las columnas del diagrama ER: el año (anio) y periodos con nombre_periodo y
+ * nivel, que el director agrega uno a uno (19/10/2026).
  */
 class CalendarioTest extends TestCase
 {
@@ -31,64 +32,81 @@ class CalendarioTest extends TestCase
     private function crearAnio(array $datos = [])
     {
         return $this->como($this->director)->postJson('/api/anios-lectivos', $datos + [
-            'nombre' => '2027', 'fecha_inicio' => '2027-01-15', 'fecha_fin' => '2027-11-30',
+            'anio' => 2027, 'fecha_inicio' => '2027-01-15', 'fecha_fin' => '2027-11-30',
         ]);
     }
 
-    // Renombra los periodos del año y devuelve sus ids en orden (nivel)
+    private function agregarPeriodo(int $anioId, array $datos)
+    {
+        return $this->como($this->director)->postJson("/api/anios-lectivos/{$anioId}/periodos", $datos);
+    }
+
+    // Agrega tres trimestres al año y devuelve sus ids en orden (nivel)
     private function periodosDe(int $anioId): array
     {
-        $ids = PeriodoEscolar::where('anio_lectivo_id', $anioId)->orderBy('nivel')->pluck('id')->all();
-
-        foreach ($ids as $i => $id) {
-            $this->como($this->director)->putJson("/api/periodos-escolares/{$id}", [
-                'nombre' => 'Trimestre '.($i + 1),
-            ])->assertOk();
-        }
-
-        return $ids;
+        return array_map(
+            fn ($nivel) => $this->agregarPeriodo($anioId, ['nombre_periodo' => "Trimestre {$nivel}", 'nivel' => $nivel])->assertCreated()->json('periodo.id'),
+            [1, 2, 3]
+        );
     }
 
     // --- Creación y validación ---
 
-    public function test_crear_anio_crea_tres_periodos(): void
+    public function test_crear_anio_sin_periodos(): void
     {
-        $anio = $this->crearAnio()->assertCreated()
+        // Sin "cantidad de periodos": el año nace sin periodos y se agregan con su formulario
+        $this->crearAnio(['cantidad_periodos' => 4])->assertCreated()
+            ->assertJsonPath('anio_lectivo.anio', 2027)
             ->assertJsonPath('anio_lectivo.estado', 'inactivo')
             ->assertJsonPath('anio_lectivo.fecha_inicio', '2027-01-15')
-            ->assertJsonCount(3, 'anio_lectivo.periodos')
-            ->json('anio_lectivo');
-
-        $this->assertSame([1, 2, 3], array_column($anio['periodos'], 'nivel'));
-        $this->assertArrayNotHasKey('estado', $anio['periodos'][0]);
-        $this->assertSame(['Primer trimestre', 'Segundo trimestre', 'Tercer trimestre'], array_column($anio['periodos'], 'nombre'));
+            ->assertJsonCount(0, 'anio_lectivo.periodos')
+            ->assertJsonMissingPath('anio_lectivo.nombre');
+        $this->assertSame(0, PeriodoEscolar::count());
     }
 
-    public function test_cantidad_de_periodos_configurable(): void
+    public function test_agregar_periodo_con_su_formulario(): void
     {
-        $this->crearAnio(['cantidad_periodos' => 4])->assertCreated()->assertJsonCount(4, 'anio_lectivo.periodos')
-            ->assertJsonPath('anio_lectivo.periodos.3.nombre', 'Cuarto periodo');
-        $this->crearAnio(['nombre' => '2028', 'cantidad_periodos' => 0])->assertStatus(422)->assertJsonValidationErrors('cantidad_periodos');
-        $this->crearAnio(['nombre' => '2028', 'cantidad_periodos' => 7])->assertStatus(422)->assertJsonValidationErrors('cantidad_periodos');
+        $id = $this->crearAnio()->json('anio_lectivo.id');
 
-        // Se puede agregar un periodo después, hasta el máximo
-        $id = AnioLectivo::where('nombre', '2027')->value('id');
-        $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/periodos", ['nombre' => 'Recuperación'])
-            ->assertCreated()->assertJsonPath('periodo.nivel', 5)->assertJsonPath('periodo.nombre', 'Recuperación');
-        $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/periodos")->assertCreated()
-            ->assertJsonPath('periodo.nivel', 6)->assertJsonPath('periodo.nombre', 'Sexto periodo');
-        $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/periodos")->assertStatus(409);
+        $this->agregarPeriodo($id, ['nombre_periodo' => 'Primer trimestre', 'nivel' => 1])->assertCreated()
+            ->assertJsonPath('periodo.nombre_periodo', 'Primer trimestre')->assertJsonPath('periodo.nivel', 1)
+            ->assertJsonPath('periodo.anio_lectivo_id', $id)->assertJsonMissingPath('periodo.nombre');
+
+        // Campos obligatorios y nivel de 1 a 6
+        $this->agregarPeriodo($id, [])->assertStatus(422)->assertJsonValidationErrors(['nombre_periodo', 'nivel']);
+        $this->agregarPeriodo($id, ['nombre_periodo' => 'X', 'nivel' => 0])->assertStatus(422)->assertJsonValidationErrors('nivel');
+        $this->agregarPeriodo($id, ['nombre_periodo' => 'X', 'nivel' => 7])->assertStatus(422)->assertJsonValidationErrors('nivel');
+        $this->agregarPeriodo($id, ['nombre_periodo' => str_repeat('a', 51), 'nivel' => 2])->assertStatus(422)->assertJsonValidationErrors('nombre_periodo');
+
+        // Sin repetir nivel ni nombre (mayúsculas, tildes y espacios no cuentan) dentro del año
+        $this->agregarPeriodo($id, ['nombre_periodo' => 'Otro', 'nivel' => 1])->assertStatus(422)
+            ->assertJsonPath('errors.nivel.0', 'El año lectivo 2027 ya tiene un periodo con el nivel 1.');
+        $this->agregarPeriodo($id, ['nombre_periodo' => '  primer   TRIMESTRE ', 'nivel' => 2])->assertStatus(422)
+            ->assertJsonValidationErrors('nombre_periodo');
+
+        // Otro año sí admite el mismo nombre y nivel
+        $otro = $this->crearAnio(['anio' => 2028, 'fecha_inicio' => '2028-01-15', 'fecha_fin' => '2028-11-30'])->json('anio_lectivo.id');
+        $this->agregarPeriodo($otro, ['nombre_periodo' => 'Primer trimestre', 'nivel' => 1])->assertCreated();
+
+        // Hasta seis periodos por año
+        foreach ([2, 3, 4, 5, 6] as $nivel) {
+            $this->agregarPeriodo($id, ['nombre_periodo' => "Periodo {$nivel}", 'nivel' => $nivel])->assertCreated();
+        }
+        $this->agregarPeriodo($id, ['nombre_periodo' => 'Extra', 'nivel' => 6])->assertStatus(409)
+            ->assertJsonPath('message', 'Un año lectivo admite como máximo 6 periodos.');
     }
 
     public function test_validacion_del_anio(): void
     {
         $this->como($this->director)->postJson('/api/anios-lectivos', [])
-            ->assertStatus(422)->assertJsonValidationErrors(['nombre', 'fecha_inicio', 'fecha_fin']);
+            ->assertStatus(422)->assertJsonValidationErrors(['anio', 'fecha_inicio', 'fecha_fin']);
+        $this->crearAnio(['anio' => 'dos mil'])->assertStatus(422)->assertJsonValidationErrors('anio');
+        $this->crearAnio(['anio' => 1999])->assertStatus(422)->assertJsonValidationErrors('anio');
         $this->crearAnio(['fecha_inicio' => '2027-12-01', 'fecha_fin' => '2027-01-01'])
             ->assertStatus(422)->assertJsonValidationErrors('fecha_fin');
         $this->crearAnio(['fecha_inicio' => 'no-es-fecha'])->assertStatus(422)->assertJsonValidationErrors('fecha_inicio');
         $this->crearAnio()->assertCreated();
-        $this->crearAnio()->assertStatus(422)->assertJsonPath('errors.nombre.0', 'Ya existe un año lectivo con ese nombre.');
+        $this->crearAnio()->assertStatus(422)->assertJsonPath('errors.anio.0', 'Ya existe un año lectivo con ese año.');
         $this->assertSame(1, AnioLectivo::count());
     }
 
@@ -97,11 +115,17 @@ class CalendarioTest extends TestCase
     public function test_activar_exige_fechas_y_un_solo_anio_activo(): void
     {
         $a = $this->crearAnio()->json('anio_lectivo.id');
-        $b = $this->crearAnio(['nombre' => '2028', 'fecha_inicio' => '2028-01-15', 'fecha_fin' => '2028-11-30'])->json('anio_lectivo.id');
-        $sinFechas = AnioLectivo::create(['nombre' => '2026']);
+        $b = $this->crearAnio(['anio' => 2028, 'fecha_inicio' => '2028-01-15', 'fecha_fin' => '2028-11-30'])->json('anio_lectivo.id');
+        $sinFechas = AnioLectivo::create(['anio' => 2026]);
 
         $this->como($this->director)->postJson("/api/anios-lectivos/{$sinFechas->id}/activar")
             ->assertStatus(409)->assertJsonPath('message', 'Para activar el año lectivo debe tener fecha de inicio y fecha de fin, y la de inicio debe ser anterior.');
+
+        // Sin periodos tampoco se activa
+        $this->como($this->director)->postJson("/api/anios-lectivos/{$a}/activar")
+            ->assertStatus(409)->assertJsonPath('message', 'Agregue al menos un periodo escolar antes de activar el año lectivo.');
+        $this->periodosDe($a);
+        $this->periodosDe($b);
 
         $this->como($this->director)->postJson("/api/anios-lectivos/{$a}/activar")->assertOk()->assertJsonPath('anio_lectivo.estado', 'activo');
         $this->como($this->director)->postJson("/api/anios-lectivos/{$a}/activar")->assertStatus(409);
@@ -117,17 +141,19 @@ class CalendarioTest extends TestCase
     public function test_anio_cerrado_no_se_reactiva_ni_se_edita(): void
     {
         $id = $this->crearAnio()->json('anio_lectivo.id');
+        $this->periodosDe($id);
         $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/cerrar")->assertStatus(409); // inactivo
         $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/activar")->assertOk();
         $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/cerrar")->assertOk()->assertJsonPath('anio_lectivo.estado', 'cierre');
 
         $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/activar")
             ->assertStatus(409)->assertJsonPath('message', 'Un año lectivo cerrado no puede volver a activarse.');
-        $this->como($this->director)->putJson("/api/anios-lectivos/{$id}", ['nombre' => '2027', 'fecha_inicio' => '2027-01-15', 'fecha_fin' => '2027-12-15'])
+        $this->como($this->director)->putJson("/api/anios-lectivos/{$id}", ['anio' => 2027, 'fecha_inicio' => '2027-01-15', 'fecha_fin' => '2027-12-15'])
             ->assertStatus(409);
 
         // Cerrado el anterior, se puede activar otro
-        $otro = $this->crearAnio(['nombre' => '2028', 'fecha_inicio' => '2028-01-15', 'fecha_fin' => '2028-11-30'])->json('anio_lectivo.id');
+        $otro = $this->crearAnio(['anio' => 2028, 'fecha_inicio' => '2028-01-15', 'fecha_fin' => '2028-11-30'])->json('anio_lectivo.id');
+        $this->periodosDe($otro);
         $this->como($this->director)->postJson("/api/anios-lectivos/{$otro}/activar")->assertOk();
     }
 
@@ -135,8 +161,8 @@ class CalendarioTest extends TestCase
     {
         $id = $this->crearAnio()->json('anio_lectivo.id');
 
-        $this->como($this->director)->putJson("/api/anios-lectivos/{$id}", ['nombre' => 'Año 2027', 'fecha_inicio' => '2027-01-10', 'fecha_fin' => '2027-12-10'])
-            ->assertOk()->assertJsonPath('anio_lectivo.nombre', 'Año 2027')->assertJsonPath('anio_lectivo.fecha_fin', '2027-12-10');
+        $this->como($this->director)->putJson("/api/anios-lectivos/{$id}", ['anio' => 2030, 'fecha_inicio' => '2027-01-10', 'fecha_fin' => '2027-12-10'])
+            ->assertOk()->assertJsonPath('anio_lectivo.anio', 2030)->assertJsonPath('anio_lectivo.fecha_fin', '2027-12-10');
     }
 
     // --- Periodos ---
@@ -151,14 +177,16 @@ class CalendarioTest extends TestCase
         $this->como($this->director)->postJson("/api/periodos-escolares/{$p1}/cerrar")->assertNotFound();
 
         $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/activar")->assertOk();
-        $this->como($this->director)->putJson("/api/periodos-escolares/{$p1}", ['nombre' => 'Primer periodo'])
-            ->assertOk()->assertJsonPath('periodo.nombre', 'Primer periodo');
+        $this->como($this->director)->putJson("/api/periodos-escolares/{$p1}", ['nombre_periodo' => 'Primer periodo'])
+            ->assertOk()->assertJsonPath('periodo.nombre_periodo', 'Primer periodo');
+        $this->como($this->director)->putJson("/api/periodos-escolares/{$p1}", ['nombre_periodo' => 'trimestre 2'])
+            ->assertStatus(422)->assertJsonValidationErrors('nombre_periodo');
         $this->como($this->director)->getJson('/api/anios-lectivos/actual')->assertOk()
             ->assertJsonPath('anio_lectivo.id', $id)->assertJsonCount(3, 'anio_lectivo.periodos')
             ->assertJsonMissingPath('periodo_abierto');
 
         $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/cerrar")->assertOk();
-        $this->como($this->director)->putJson("/api/periodos-escolares/{$p1}", ['nombre' => 'X'])->assertStatus(409);
+        $this->como($this->director)->putJson("/api/periodos-escolares/{$p1}", ['nombre_periodo' => 'X'])->assertStatus(409);
     }
 
     public function test_regla_preparada_para_notas_y_conducta(): void
@@ -188,10 +216,11 @@ class CalendarioTest extends TestCase
     public function test_no_se_borran_anios_ni_periodos_con_datos(): void
     {
         $id = $this->crearAnio()->json('anio_lectivo.id');
-        [$p1, $p2, $p3] = PeriodoEscolar::where('anio_lectivo_id', $id)->orderBy('nivel')->pluck('id')->all();
+        [$p1, $p2, $p3] = $this->periodosDe($id);
 
-        // Solo el último periodo, para conservar la numeración
-        $this->como($this->director)->deleteJson("/api/periodos-escolares/{$p2}")->assertStatus(409);
+        // Un periodo sin registros se elimina
+        $this->como($this->director)->deleteJson("/api/periodos-escolares/{$p2}")->assertOk();
+        $this->agregarPeriodo($id, ['nombre_periodo' => 'Trimestre 2', 'nivel' => 2])->assertCreated();
 
         // Con registros académicos (conducta) no se borra
         $catalogos = $this->catalogosBasicos();
@@ -210,13 +239,15 @@ class CalendarioTest extends TestCase
         $this->assertSame(3, PeriodoEscolar::where('anio_lectivo_id', $id)->count());
 
         // Con matrículas tampoco
-        $otro = $this->crearAnio(['nombre' => '2028', 'fecha_inicio' => '2028-01-15', 'fecha_fin' => '2028-11-30'])->json('anio_lectivo.id');
+        $otro = $this->crearAnio(['anio' => 2028, 'fecha_inicio' => '2028-01-15', 'fecha_fin' => '2028-11-30'])->json('anio_lectivo.id');
+        $this->periodosDe($otro);
         DB::table('matriculas')->where('id', $matricula)->update(['anio_lectivo_id' => $otro]);
         $this->como($this->director)->deleteJson("/api/anios-lectivos/{$otro}")
             ->assertStatus(409)->assertJsonPath('message', 'No se puede eliminar el año lectivo porque tiene secciones o matrículas asociadas.');
 
         // Un año inactivo sin datos sí se elimina, con sus periodos
-        $libre = $this->crearAnio(['nombre' => '2029', 'fecha_inicio' => '2029-01-15', 'fecha_fin' => '2029-11-30'])->json('anio_lectivo.id');
+        $libre = $this->crearAnio(['anio' => 2029, 'fecha_inicio' => '2029-01-15', 'fecha_fin' => '2029-11-30'])->json('anio_lectivo.id');
+        $this->periodosDe($libre);
         $this->como($this->director)->deleteJson("/api/anios-lectivos/{$libre}")->assertOk();
         $this->assertSame(0, PeriodoEscolar::where('anio_lectivo_id', $libre)->count());
 
@@ -230,7 +261,7 @@ class CalendarioTest extends TestCase
     public function test_permisos_por_rol(): void
     {
         $id = $this->crearAnio()->json('anio_lectivo.id');
-        $periodo = PeriodoEscolar::where('anio_lectivo_id', $id)->value('id');
+        [$periodo] = $this->periodosDe($id);
 
         foreach ([User::ROL_DOCENTE, User::ROL_ENCARGADO] as $rol) {
             $cuenta = $this->usuario($rol);
@@ -240,7 +271,7 @@ class CalendarioTest extends TestCase
             $this->como($cuenta)->getJson("/api/anios-lectivos/{$id}/periodos")->assertOk()->assertJsonCount(3, 'periodos');
             $this->como($cuenta)->getJson("/api/periodos-escolares/{$periodo}")->assertOk();
 
-            $this->como($cuenta)->postJson('/api/anios-lectivos', ['nombre' => 'X'])->assertStatus(403);
+            $this->como($cuenta)->postJson('/api/anios-lectivos', ['anio' => 2030])->assertStatus(403);
             $this->como($cuenta)->putJson("/api/anios-lectivos/{$id}", [])->assertStatus(403);
             $this->como($cuenta)->postJson("/api/anios-lectivos/{$id}/activar")->assertStatus(403);
             $this->como($cuenta)->postJson("/api/anios-lectivos/{$id}/cerrar")->assertStatus(403);
@@ -258,7 +289,7 @@ class CalendarioTest extends TestCase
     public function test_errores_no_exponen_detalles_internos(): void
     {
         $this->como($this->director)->getJson('/api/anios-lectivos/999')->assertNotFound()->assertExactJson(['message' => 'Año lectivo no encontrado']);
-        $this->como($this->director)->putJson('/api/periodos-escolares/999', ['nombre' => 'X'])->assertNotFound()->assertExactJson(['message' => 'Periodo no encontrado']);
+        $this->como($this->director)->putJson('/api/periodos-escolares/999', ['nombre_periodo' => 'X'])->assertNotFound()->assertExactJson(['message' => 'Periodo no encontrado']);
 
         \Illuminate\Support\Facades\Schema::rename('anios_lectivos', 'anios_tmp');
         $this->como($this->director)->getJson('/api/anios-lectivos')->assertStatus(500)->assertExactJson(['message' => 'Error al obtener los años lectivos']);
