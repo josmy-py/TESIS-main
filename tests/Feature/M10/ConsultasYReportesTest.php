@@ -152,6 +152,11 @@ class ConsultasYReportesTest extends TestCase
         $r = $this->como($this->cuentaOtroDocente)->getJson("/api/docente/reportes/notas?{$q}")->assertOk();
         $this->assertSame(['Lenguaje'], collect($r->json('materias'))->pluck('nombre')->all());
 
+        // El guía de la sección ve todas sus materias (libreta de notas completa) y su nombre
+        $r = $this->como($this->cuentaDocente)->getJson("/api/docente/reportes/notas?{$q}")->assertOk();
+        $this->assertSame(['Lenguaje', 'Matemática'], collect($r->json('materias'))->pluck('nombre')->all());
+        $this->assertSame($this->seccion->profesor->nombre, $r->json('seccion.profesor.nombre'));
+
         [$ajeno] = $this->docenteNuevo(3);
         $this->como($ajeno)->getJson("/api/docente/reportes/notas?{$q}")->assertNotFound();
         $this->como($this->cuentaDocente)->getJson("/api/reportes/notas?{$q}")->assertForbidden();

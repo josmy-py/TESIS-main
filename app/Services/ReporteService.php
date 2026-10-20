@@ -29,16 +29,20 @@ class ReporteService
     /** Sección para el reporte: el director cualquiera; el docente, una donde enseña o es guía. */
     public function seccion(User $user, $seccionId): Seccion
     {
-        return $user->esDirector()
+        $seccion = $user->esDirector()
             ? Seccion::with(['grado:id,nombre', 'anioLectivo:id,anio,estado'])->findOrFail($seccionId)
             : $this->conducta->seccionPropia($user, $seccionId);
+
+        // Profesor responsable (guía) de la sección, para la libreta de notas
+        return $seccion->load('profesor:id,nombre');
     }
 
     public function notas(User $user, Seccion $seccion, $periodoId): array
     {
         $periodo = $this->periodo($seccion, $periodoId);
         $asignaciones = Asignacion::with('asignatura:id,nombre')->where('seccion_id', $seccion->id)
-            ->when(! $user->esDirector(), fn ($q) => $q->where('profesor_id', $user->profesor?->id ?? 0))
+            // El docente ve solo sus materias, salvo que sea el guía de la sección (libreta completa)
+            ->when(! $user->esDirector() && ! $this->esGuia($user, $seccion), fn ($q) => $q->where('profesor_id', $user->profesor?->id ?? 0))
             ->get()->sortBy(fn ($a) => mb_strtolower((string) $a->asignatura?->nombre))->values();
         if (! $user->esDirector() && $asignaciones->isEmpty()) {
             throw new ModelNotFoundException();
@@ -83,6 +87,11 @@ class ReporteService
                 'conducta' => $conductas->get($m->id)?->only(['descripcion', 'valoracion']),
             ])->values(),
         ];
+    }
+
+    private function esGuia(User $user, Seccion $seccion): bool
+    {
+        return $user->profesor !== null && (int) $seccion->profesor_id === (int) $user->profesor->id;
     }
 
     private function periodo(Seccion $seccion, $periodoId): PeriodoEscolar
