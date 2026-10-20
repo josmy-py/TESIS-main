@@ -31,7 +31,7 @@ class MatriculaController extends Controller
         'nie.prohibited' => 'En Nuevo ingreso sin traslado el NIE lo registra la dirección al aprobar la matrícula.',
         'foto.required' => 'La foto es obligatoria.',
         'foto.image' => 'La foto debe ser una imagen JPEG o PNG.',
-        'documento.required_if' => 'La partida de nacimiento es obligatoria para Nuevo ingreso.',
+        'documento.required' => 'La documentación es obligatoria si el estudiante proviene de otro centro escolar.',
         'documento.mimes' => 'El documento debe ser PDF, JPEG, PNG o JPG.',
         'es_trasladado.required' => 'Debe indicar si el estudiante es trasladado.',
         'es_trasladado.boolean' => 'El campo es trasladado debe ser verdadero o falso.',
@@ -61,6 +61,9 @@ class MatriculaController extends Controller
     {
         return $this->responder(function () use ($request) {
             $propietarioId = $this->propietarioId();
+            // es_trasladado (¿proviene de otro centro escolar?) solo se pregunta en Nuevo ingreso
+            // y con ella la documentación es obligatoria; en Reingreso queda en falso
+            $nuevo = $request->input('ingreso') === 'Nuevo ingreso';
             $validador = Validator::make($request->all(), [
                 'ingreso' => 'required|in:Nuevo ingreso,Reingreso',
                 'estudiante_id' => 'required|integer|exists:estudiantes,id',
@@ -82,8 +85,8 @@ class MatriculaController extends Controller
                 'discapacidades' => 'nullable|array',
                 'discapacidades.*' => 'integer|distinct|exists:discapacidades,id',
                 'foto' => 'required|image|mimes:jpeg,png,jpg|max:2048',
-                'documento' => 'required_if:ingreso,Nuevo ingreso|nullable|file|mimes:pdf,jpeg,png,jpg|max:2048',
-                'es_trasladado' => 'required|boolean',
+                'documento' => [$nuevo && $request->boolean('es_trasladado') ? 'required' : 'nullable', 'file', 'mimes:pdf,jpeg,png,jpg', 'max:2048'],
+                'es_trasladado' => $nuevo ? 'required|boolean' : ['nullable', 'boolean', $this->sinTrasladoEnReingreso()],
             ], self::MENSAJES);
 
             // El encargado solo matricula a sus estudiantes y con su propio perfil de
@@ -125,7 +128,7 @@ class MatriculaController extends Controller
     {
         return $this->responder(function () use ($request, $id) {
             $propietarioId = $this->propietarioId();
-            $actual = $this->matriculaService->matriculas($propietarioId)->whereKey($id)->first(['id', 'estudiante_id', 'ingreso', 'es_trasladado']);
+            $actual = $this->matriculaService->matriculas($propietarioId)->whereKey($id)->first(['id', 'estudiante_id', 'ingreso', 'es_trasladado', 'documento']);
             $trasladado = $request->has('es_trasladado') ? $request->boolean('es_trasladado') : (bool) $actual?->es_trasladado;
             $datos = $request->validate([
                 'seccion_id' => $propietarioId ? 'prohibited' : 'sometimes|required|integer|exists:secciones,id',
@@ -137,9 +140,10 @@ class MatriculaController extends Controller
                 'enfermedad_id' => 'sometimes|nullable|integer|exists:enfermedades,id',
                 'discapacidades' => 'sometimes|nullable|array',
                 'discapacidades.*' => 'integer|distinct|exists:discapacidades,id',
-                'es_trasladado' => 'sometimes|required|boolean',
+                'es_trasladado' => $actual?->ingreso === 'Reingreso' ? ['sometimes', 'nullable', 'boolean', $this->sinTrasladoEnReingreso()] : 'sometimes|required|boolean',
                 'foto' => 'sometimes|image|mimes:jpeg,png,jpg|max:2048',
-                'documento' => 'sometimes|file|mimes:pdf,jpeg,png,jpg|max:2048',
+                // Si pasa a "proviene de otro centro escolar" debe quedar con documentación
+                'documento' => [$actual?->ingreso === 'Nuevo ingreso' && $trasladado && ! $actual->documento ? 'required' : 'sometimes', 'file', 'mimes:pdf,jpeg,png,jpg', 'max:2048'],
             ], self::MENSAJES);
 
             if (array_key_exists('encargado_id', $datos)) {
@@ -317,6 +321,16 @@ class MatriculaController extends Controller
 
             return response()->json(['duplicidad' => false, 'message' => 'El estudiante no tiene una matrícula registrada']);
         }, 'Error al verificar la matrícula', 'Estudiante no encontrado');
+    }
+
+    /** Reingreso: no se pregunta si proviene de otro centro escolar (es_trasladado queda en falso). */
+    private function sinTrasladoEnReingreso(): \Closure
+    {
+        return function (string $campo, $valor, \Closure $fallar) {
+            if (filter_var($valor, FILTER_VALIDATE_BOOLEAN)) {
+                $fallar('En Reingreso no se indica si proviene de otro centro escolar.');
+            }
+        };
     }
 
     /** NIE del estudiante: solo números, hasta 10 dígitos, único (sin contar al propio estudiante). */

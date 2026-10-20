@@ -18,7 +18,7 @@ use Tests\TestCase;
 /**
  * M2.2: secciones y matrículas usan el año lectivo, no el reloj del servidor.
  * Desde M6.1 la solicitud exige sección, plan vigente del grado, responsable
- * y partida para Nuevo ingreso (ver tests/Feature/M6).
+ * y documentación si el estudiante proviene de otro centro escolar (ver tests/Feature/M6).
  */
 class CalendarioMatriculaTest extends TestCase
 {

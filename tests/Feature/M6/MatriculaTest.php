@@ -166,15 +166,15 @@ class MatriculaTest extends TestCase
 
     // ---------------------------------------------------------------- crear
 
-    public function test_crear_sin_seccion_con_partida_y_responsable(): void
+    public function test_crear_sin_seccion_con_documentacion_y_responsable(): void
     {
         $hijo = $this->hijoDeA();
 
-        // El encargado no elige la sección (la asigna la dirección); partida para Nuevo ingreso (pág. 57)
+        // El encargado no elige la sección (la asigna la dirección); documentación si proviene de otro centro escolar
         $this->solicitar($hijo, ['seccion_id' => $this->primeroA->id])->assertStatus(422)
             ->assertJsonPath('errors.seccion_id.0', 'La sección la asigna la dirección al revisar la matrícula.');
-        $this->solicitar($hijo, ['documento' => null])->assertStatus(422)
-            ->assertJsonPath('errors.documento.0', 'La partida de nacimiento es obligatoria para Nuevo ingreso.');
+        $this->solicitar($hijo, ['documento' => null, 'es_trasladado' => 1, 'nie' => '4444444'])->assertStatus(422)
+            ->assertJsonPath('errors.documento.0', 'La documentación es obligatoria si el estudiante proviene de otro centro escolar.');
 
         // Grado y turno son obligatorios; el turno debe tener secciones con cupo de ese grado
         $this->solicitar($hijo, ['grado_id' => null, 'turno' => null])->assertStatus(422)->assertJsonValidationErrors(['grado_id', 'turno']);
@@ -307,6 +307,36 @@ class MatriculaTest extends TestCase
         $sinSeccion = $this->solicitar($this->hijoDeA(), ['especialidad_id' => $contador])->assertCreated()
             ->assertJsonPath('matricula.especialidad_id', $contador)->json('matricula.id');
         $this->aprobar($sinSeccion, ['seccion_id' => $seccion->id])->assertStatus(422)->assertJsonValidationErrors('especialidad_id');
+    }
+
+    public function test_documentacion_segun_traslado_y_tipo_de_ingreso(): void
+    {
+        // Nuevo ingreso sin traslado: la documentación es opcional
+        $local = $this->hijoDeA(['nie' => null]);
+        $id = $this->solicitar($local, ['documento' => null])->assertCreated()
+            ->assertJsonPath('matricula.es_trasladado', false)->json('matricula.id');
+        $this->assertNull(Matricula::find($id)->documento);
+
+        // Si al editar pasa a "proviene de otro centro escolar", debe adjuntar la documentación
+        $this->como($this->a)->putJson("/api/matriculas/{$id}", ['es_trasladado' => 1, 'nie' => '3333333'])->assertStatus(422)
+            ->assertJsonPath('errors.documento.0', 'La documentación es obligatoria si el estudiante proviene de otro centro escolar.');
+        $this->como($this->a)->post("/api/matriculas/{$id}", [
+            '_method' => 'PUT', 'es_trasladado' => 1, 'nie' => '3333333',
+            'documento' => UploadedFile::fake()->create('documentacion.pdf', 20, 'application/pdf'),
+        ], ['Accept' => 'application/json'])->assertOk()->assertJsonPath('matricula.es_trasladado', true);
+        $this->assertStringStartsWith('documentos/', Matricula::find($id)->documento);
+        // Ya tiene documentación: puede editar otros campos sin volver a subirla
+        $this->como($this->a)->putJson("/api/matriculas/{$id}", ['es_trasladado' => 1])->assertOk();
+
+        // Reingreso: no se pregunta si proviene de otro centro escolar y queda en falso
+        $reingreso = $this->hijoDeA();
+        $this->historial($reingreso, $this->primero, 'Aprobada');
+        $this->solicitar($reingreso, ['ingreso' => 'Reingreso', 'documento' => null, 'es_trasladado' => 1])->assertStatus(422)
+            ->assertJsonPath('errors.es_trasladado.0', 'En Reingreso no se indica si proviene de otro centro escolar.');
+        $otro = $this->solicitar($reingreso, ['ingreso' => 'Reingreso', 'documento' => null, 'es_trasladado' => null])->assertCreated()
+            ->assertJsonPath('matricula.es_trasladado', false)->json('matricula.id');
+        $this->como($this->a)->putJson("/api/matriculas/{$otro}", ['es_trasladado' => 1])->assertStatus(422)
+            ->assertJsonValidationErrors('es_trasladado');
     }
 
     // ------------------------------------------------------------ promoción

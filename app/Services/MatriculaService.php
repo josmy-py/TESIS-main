@@ -45,6 +45,9 @@ use Illuminate\Validation\ValidationException;
  *   ni rechazadas.
  * - D-M8: enfermedad opcional y discapacidades en `expedientes`.
  * - D-M9: foto y documento en el disco privado `matriculas`.
+ * - Documentación (ajuste de Josmy): obligatoria solo en Nuevo ingreso cuando
+ *   el estudiante proviene de otro centro escolar (es_trasladado); en Reingreso
+ *   es_trasladado siempre queda en falso.
  */
 class MatriculaService
 {
@@ -181,7 +184,8 @@ class MatriculaService
                     'estado' => 'pendiente',
                     'foto' => $rutaFoto,
                     'documento' => $rutaDocumento,
-                    'es_trasladado' => (bool) $datos['es_trasladado'],
+                    // Solo Nuevo ingreso puede provenir de otro centro escolar
+                    'es_trasladado' => $datos['ingreso'] === 'Nuevo ingreso' && ! empty($datos['es_trasladado']),
                     'estudiante_id' => $estudiante->id,
                     'enfermedad_id' => $this->enfermedadConMedicamento($datos['enfermedad_id'] ?? null, $datos['medicamento'] ?? null),
                     'seccion_id' => $seccion?->id,
@@ -250,7 +254,7 @@ class MatriculaService
                     $cambios['enfermedad_id'] = $datos['enfermedad_id'];
                 }
                 if (array_key_exists('es_trasladado', $datos)) {
-                    $cambios['es_trasladado'] = (bool) $datos['es_trasladado'];
+                    $cambios['es_trasladado'] = $matricula->ingreso === 'Nuevo ingreso' && $datos['es_trasladado'];
                 }
                 if ($foto) {
                     $guardados[] = $cambios['foto'] = $this->guardarArchivo($foto, 'fotos', 'foto');
