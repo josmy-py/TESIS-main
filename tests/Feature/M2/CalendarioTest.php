@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\CalendarioService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Tests\Concerns\HoyFijo;
 use Tests\Feature\M1\DatosM1;
 use Tests\TestCase;
 
@@ -18,7 +19,7 @@ use Tests\TestCase;
  */
 class CalendarioTest extends TestCase
 {
-    use DatosM1, DatosM2, RefreshDatabase;
+    use DatosM1, DatosM2, RefreshDatabase, HoyFijo;
 
     private User $director;
 
@@ -33,6 +34,7 @@ class CalendarioTest extends TestCase
     {
         return $this->como($this->director)->postJson('/api/anios-lectivos', $datos + [
             'anio' => 2027, 'fecha_inicio' => '2027-01-15', 'fecha_fin' => '2027-11-30',
+            'inicio_matricula' => '2026-11-01', 'fin_matricula' => '2027-02-28',
         ]);
     }
 
@@ -149,7 +151,7 @@ class CalendarioTest extends TestCase
 
         $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/activar")
             ->assertStatus(409)->assertJsonPath('message', 'Un año lectivo cerrado no puede volver a activarse.');
-        $this->como($this->director)->putJson("/api/anios-lectivos/{$id}", ['anio' => 2027, 'fecha_inicio' => '2027-01-15', 'fecha_fin' => '2027-12-15'])
+        $this->como($this->director)->putJson("/api/anios-lectivos/{$id}", ['anio' => 2027, 'fecha_inicio' => '2027-01-15', 'fecha_fin' => '2027-12-15', 'inicio_matricula' => '2026-11-01', 'fin_matricula' => '2027-02-28'])
             ->assertStatus(409);
 
         // Cerrado el anterior, se puede activar otro
@@ -162,8 +164,41 @@ class CalendarioTest extends TestCase
     {
         $id = $this->crearAnio()->json('anio_lectivo.id');
 
-        $this->como($this->director)->putJson("/api/anios-lectivos/{$id}", ['anio' => 2030, 'fecha_inicio' => '2027-01-10', 'fecha_fin' => '2027-12-10'])
+        $this->como($this->director)->putJson("/api/anios-lectivos/{$id}", ['anio' => 2030, 'fecha_inicio' => '2027-01-10', 'fecha_fin' => '2027-12-10', 'inicio_matricula' => '2026-11-01', 'fin_matricula' => '2027-02-28'])
             ->assertOk()->assertJsonPath('anio_lectivo.anio', 2030)->assertJsonPath('anio_lectivo.fecha_fin', '2027-12-10');
+    }
+
+    public function test_fechas_de_matricula_del_anio(): void
+    {
+        // Se guardan y se informan junto con si el año comenzó y si la matrícula está abierta
+        $this->crearAnio()->assertCreated()
+            ->assertJsonPath('anio_lectivo.inicio_matricula', '2026-11-01')
+            ->assertJsonPath('anio_lectivo.fin_matricula', '2027-02-28')
+            ->assertJsonPath('anio_lectivo.comenzado', false)
+            ->assertJsonPath('anio_lectivo.matricula_abierta', false);
+        $id = AnioLectivo::where('anio', 2027)->value('id');
+
+        $this->fijarHoy('2027-01-15');
+        $this->como($this->director)->getJson("/api/anios-lectivos/{$id}")->assertOk()
+            ->assertJsonPath('anio_lectivo.comenzado', true)
+            ->assertJsonPath('anio_lectivo.matricula_abierta', true);
+
+        // Obligatorias; el fin no antes del inicio ni después del fin del año
+        $this->crearAnio(['anio' => 2028, 'inicio_matricula' => null, 'fin_matricula' => null])
+            ->assertStatus(422)->assertJsonValidationErrors(['inicio_matricula', 'fin_matricula']);
+        $this->crearAnio(['anio' => 2028, 'fecha_inicio' => '2028-01-15', 'fecha_fin' => '2028-11-30', 'inicio_matricula' => '2028-02-01', 'fin_matricula' => '2028-01-31'])
+            ->assertStatus(422)->assertJsonPath('errors.fin_matricula.0', 'La fecha de fin de matrícula no puede ser anterior a la de inicio de matrícula.');
+        $this->crearAnio(['anio' => 2028, 'fecha_inicio' => '2028-01-15', 'fecha_fin' => '2028-11-30', 'inicio_matricula' => '2027-11-01', 'fin_matricula' => '2028-12-01'])
+            ->assertStatus(422)->assertJsonPath('errors.fin_matricula.0', 'La matrícula debe terminar a más tardar en la fecha de fin del año lectivo.');
+        // Puede empezar antes del año y durar un solo día
+        $this->crearAnio(['anio' => 2028, 'fecha_inicio' => '2028-01-15', 'fecha_fin' => '2028-11-30', 'inicio_matricula' => '2027-11-01', 'fin_matricula' => '2027-11-01'])
+            ->assertCreated();
+
+        // Se cambian también con el año activo
+        $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/periodos", ['nombre_periodo' => 'Primer trimestre', 'nivel' => 1])->assertCreated();
+        $this->como($this->director)->postJson("/api/anios-lectivos/{$id}/activar")->assertOk();
+        $this->como($this->director)->putJson("/api/anios-lectivos/{$id}", ['anio' => 2027, 'fecha_inicio' => '2027-01-15', 'fecha_fin' => '2027-11-30', 'inicio_matricula' => '2026-12-01', 'fin_matricula' => '2027-01-10'])
+            ->assertOk()->assertJsonPath('anio_lectivo.fin_matricula', '2027-01-10')->assertJsonPath('anio_lectivo.matricula_abierta', false);
     }
 
     // --- Periodos ---

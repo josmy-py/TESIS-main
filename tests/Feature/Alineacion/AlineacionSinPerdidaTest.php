@@ -81,6 +81,10 @@ class AlineacionSinPerdidaTest extends TestCase
                     if ($tabla === 'users' && $columna === 'rol_id') {
                         continue; // se comprueba abajo
                     }
+                    if ($tabla === 'anios_lectivos' && in_array($columna, ['inicio_matricula', 'fin_matricula'], true)) {
+                        $this->assertNull($valor, 'Las fechas de matrícula (000018, 20/10/2026) quedan vacías hasta que el director las indique');
+                        continue;
+                    }
                     // 19/10/2026: el año lectivo pasa a "anio" y el periodo a "nombre_periodo" (diagrama)
                     $origen = ['anios_lectivos.anio' => 'nombre', 'periodo_escolares.nombre_periodo' => 'nombre']["{$tabla}.{$columna}"] ?? $columna;
                     $anterior = $antes[$tabla][$i][$origen];

@@ -143,6 +143,8 @@ class MatriculaService
     public function crear(array $datos, UploadedFile $foto, ?UploadedFile $documento, User $cuenta, ?int $propietarioId = null): Matricula
     {
         $anio = $this->calendario()->anioParaMatricula($datos['anio_lectivo_id'] ?? null);
+        // Solo dentro del periodo de matrícula del año (inicio_matricula a fin_matricula)
+        $this->calendario()->asegurarPeriodoDeMatricula($anio);
         $guardados = [];
 
         try {
@@ -380,9 +382,10 @@ class MatriculaService
         $anio = $this->calendario()->anioParaMatricula($anioLectivoId);
         $opciones = $this->promocion->opciones($estudiante, $anio);
         $vigente = Matricula::where('estudiante_id', $estudiante->id)->where('anio_lectivo_id', $anio->id)->whereIn('estado', self::VIGENTES)->first(['id', 'estado']);
+        $fueraDePeriodo = $anio->motivoMatriculaCerrada();
 
         return [
-            'anio_lectivo' => $anio->only(['id', 'anio', 'estado']),
+            'anio_lectivo' => \Illuminate\Support\Arr::only($anio->toArray(), ['id', 'anio', 'estado', 'inicio_matricula', 'fin_matricula', 'matricula_abierta']),
             'ingreso' => $opciones['ingreso'],
             // Cada grado con los turnos que aún tienen secciones con cupo (sin secciones o llenas, no aparece el turno)
             'grados' => \App\Models\Grado::whereIn('id', $opciones['grados'])->get(['id', 'nombre'])->sortBy('orden')->values()
@@ -393,8 +396,8 @@ class MatriculaService
             'repite' => (bool) ($opciones['repite'] ?? false),
             'especialidad_id' => $opciones['especialidad_id'] === false ? null : $opciones['especialidad_id'],
             'especialidad_libre' => $opciones['especialidad_id'] === false,
-            'mensaje' => $vigente ? "Ya tiene una matrícula {$vigente->estado} en {$anio->anio}." : $opciones['mensaje'],
-            'permitido' => ! $vigente && ! $opciones['bloqueo'],
+            'mensaje' => $vigente ? "Ya tiene una matrícula {$vigente->estado} en {$anio->anio}." : ($fueraDePeriodo ?? $opciones['mensaje']),
+            'permitido' => ! $vigente && ! $opciones['bloqueo'] && ! $fueraDePeriodo,
             'nie' => $estudiante->nie,
             'responsable' => $this->responsablePara($estudiante),
         ];

@@ -69,6 +69,9 @@ class MatriculaPruebaSeeder extends Seeder
                 ], $this->archivo('foto.png', $this->png()), $this->archivo('partida.pdf', $this->pdf($nombre)), $cuenta, $cuenta->id);
             } catch (ValidationException $e) {
                 $this->command?->warn("MatriculaPruebaSeeder: no se creó la matrícula de {$nombre}: ".collect($e->errors())->flatten()->implode(' '));
+            } catch (\DomainException $e) {
+                // Por ejemplo, fuera del periodo de matrícula del año
+                $this->command?->warn("MatriculaPruebaSeeder: no se creó la matrícula de {$nombre}: {$e->getMessage()}");
             }
         }
     }

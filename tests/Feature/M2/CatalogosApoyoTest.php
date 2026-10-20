@@ -9,6 +9,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\Feature\M1\DatosM1;
+use Tests\Concerns\HoyFijo;
 use Tests\TestCase;
 
 /**
@@ -16,7 +17,7 @@ use Tests\TestCase;
  */
 class CatalogosApoyoTest extends TestCase
 {
-    use DatosM1, DatosM2, RefreshDatabase;
+    use DatosM1, DatosM2, RefreshDatabase, HoyFijo;
 
     private User $director;
 
@@ -53,22 +54,32 @@ class CatalogosApoyoTest extends TestCase
         $this->assertSame(2, Especialidad::count());
     }
 
-    public function test_especialidades_bloqueadas_con_anio_activo(): void
+    public function test_especialidades_se_bloquean_cuando_el_anio_activo_comenzo(): void
     {
         $id = Especialidad::create(['nombre' => 'General'])->id;
         $anio = \App\Models\AnioLectivo::create(['anio' => 2027, 'fecha_inicio' => '2027-01-15', 'fecha_fin' => '2027-11-30']);
         $anio->forceFill(['estado' => 'activo'])->save();
-        $bloqueo = 'Hay un año lectivo activo (2027): las especialidades no se pueden crear, modificar ni eliminar hasta que se cierre.';
 
-        $this->como($this->director)->postJson('/api/especialidades', ['nombre' => 'Nueva'])->assertStatus(409)->assertJsonPath('message', $bloqueo);
+        // Activo pero sus fechas aún no comienzan (hoy 01/12/2025): se puede modificar (20/10/2026)
+        $this->como($this->director)->postJson('/api/especialidades', ['nombre' => 'Nueva'])->assertCreated();
+        $this->como($this->director)->putJson("/api/especialidades/{$id}", ['nombre' => 'Renombrada'])->assertOk();
+
+        // Desde la fecha de inicio del año activo queda bloqueado
+        $this->fijarHoy('2027-01-15');
+        $bloqueo = 'El año lectivo activo (2027) ya comenzó (15/01/2027): las especialidades no se pueden crear, modificar ni eliminar hasta que se cierre.';
+        $this->como($this->director)->postJson('/api/especialidades', ['nombre' => 'Otra nueva'])->assertStatus(409)->assertJsonPath('message', $bloqueo);
         $this->como($this->director)->putJson("/api/especialidades/{$id}", ['nombre' => 'Otra'])->assertStatus(409)->assertJsonPath('message', $bloqueo);
         $this->como($this->director)->deleteJson("/api/especialidades/{$id}")->assertStatus(409)->assertJsonPath('message', $bloqueo);
-        $this->como($this->director)->getJson('/api/especialidades')->assertOk()->assertJsonCount(1, 'especialidades');
-        $this->assertSame('General', Especialidad::find($id)->nombre);
+        $this->como($this->director)->getJson('/api/especialidades')->assertOk()->assertJsonCount(2, 'especialidades');
+        $this->assertSame('Renombrada', Especialidad::find($id)->nombre);
+
+        // Un año inactivo ya comenzado no bloquea: solo cuenta el activo
+        $anio->forceFill(['estado' => 'inactivo'])->save();
+        $this->como($this->director)->putJson("/api/especialidades/{$id}", ['nombre' => 'Otra'])->assertOk();
 
         // Cerrado el año, se puede volver a modificar
         $anio->forceFill(['estado' => 'cierre'])->save();
-        $this->como($this->director)->putJson("/api/especialidades/{$id}", ['nombre' => 'Otra'])->assertOk();
+        $this->como($this->director)->putJson("/api/especialidades/{$id}", ['nombre' => 'Otra más'])->assertOk();
     }
 
     public function test_especialidad_con_matriculas_o_planes_no_se_elimina(): void

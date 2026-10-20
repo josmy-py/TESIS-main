@@ -20,6 +20,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Tests\Feature\M1\DatosM1;
+use Tests\Concerns\HoyFijo;
 use Tests\TestCase;
 
 /**
@@ -27,7 +28,7 @@ use Tests\TestCase;
  */
 class AsignacionesTest extends TestCase
 {
-    use DatosM1, RefreshDatabase;
+    use DatosM1, RefreshDatabase, HoyFijo;
 
     private User $director;
     private User $encargado;
@@ -64,7 +65,8 @@ class AsignacionesTest extends TestCase
 
     private function anio(string $nombre, string $estado = AnioLectivo::INACTIVO): AnioLectivo
     {
-        $anio = AnioLectivo::create(['anio' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30"]);
+        $anio = AnioLectivo::create(['anio' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30",
+            'inicio_matricula' => ($nombre - 2).'-01-01', 'fin_matricula' => "{$nombre}-11-30"]);
         $anio->forceFill(['estado' => $estado])->save();
 
         return $anio;
@@ -430,13 +432,37 @@ class AsignacionesTest extends TestCase
         $this->como($this->encargado)->getJson('/api/docente/carga')->assertForbidden();
     }
 
-    public function test_docente_sin_perfil_o_sin_anio_activo_ve_carga_vacia(): void
+    public function test_docente_sin_perfil_o_sin_anio_abierto_ve_carga_vacia(): void
     {
         $sinPerfil = $this->usuario(User::ROL_DOCENTE);
         $this->como($sinPerfil)->getJson('/api/docente/carga')->assertOk()->assertJsonPath('profesor', null)->assertJsonCount(0, 'asignaciones');
 
-        $this->anio->forceFill(['estado' => AnioLectivo::INACTIVO])->save();
+        $this->anio->forceFill(['estado' => AnioLectivo::CIERRE])->save();
         $this->como($this->docente->user)->getJson('/api/docente/carga')->assertOk()->assertJsonPath('anio_lectivo', null);
+    }
+
+    public function test_asignaciones_con_o_sin_anio_activo(): void
+    {
+        // Con el año activo
+        $this->carga($this->docente, [[$this->seccion, $this->matematica]])->assertOk();
+
+        // Sin año activo (20/10/2026): se asigna igual en el año inactivo y es el predeterminado
+        $this->anio->forceFill(['estado' => AnioLectivo::INACTIVO])->save();
+        $this->carga($this->docente, [[$this->seccion, $this->matematica], [$this->seccion, $this->lenguaje]])->assertOk();
+        $this->como($this->director)->postJson('/api/asignaciones', [
+            'profesor_id' => $this->otroDocente->id, 'asignatura_id' => $this->lenguaje->id, 'seccion_id' => $this->seccion->id,
+        ])->assertStatus(409);
+        $this->como($this->director)->getJson('/api/asignaciones')->assertOk()
+            ->assertJsonPath('anio_lectivo_id', $this->anio->id)->assertJsonCount(2, 'asignaciones');
+        $this->como($this->docente->user)->getJson('/api/docente/carga')->assertOk()
+            ->assertJsonPath('anio_lectivo.id', $this->anio->id)->assertJsonCount(2, 'asignaciones');
+
+        // Un año inactivo mientras otro está activo también admite asignaciones
+        $siguiente = $this->anio('2027');
+        $this->anio->forceFill(['estado' => AnioLectivo::ACTIVO])->save();
+        $seccion2027 = $this->seccion($this->primero, $siguiente);
+        $this->carga($this->otroDocente, [[$seccion2027, $this->matematica]], $siguiente)->assertOk();
+        $this->assertSame(1, Asignacion::where('seccion_id', $seccion2027->id)->count());
     }
 
     // --- Seeder y diagnóstico ---

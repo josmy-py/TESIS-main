@@ -60,6 +60,8 @@ class CalendarioService
                 'anio' => $datos['anio'],
                 'fecha_inicio' => $datos['fecha_inicio'],
                 'fecha_fin' => $datos['fecha_fin'],
+                'inicio_matricula' => $datos['inicio_matricula'] ?? null,
+                'fin_matricula' => $datos['fin_matricula'] ?? null,
             ]);
             $anio->forceFill(['estado' => AnioLectivo::INACTIVO])->save();
 
@@ -80,6 +82,8 @@ class CalendarioService
                 'anio' => $datos['anio'],
                 'fecha_inicio' => $datos['fecha_inicio'],
                 'fecha_fin' => $datos['fecha_fin'],
+                'inicio_matricula' => $datos['inicio_matricula'] ?? $anio->inicio_matricula,
+                'fin_matricula' => $datos['fin_matricula'] ?? $anio->fin_matricula,
             ]);
             $anio->save();
 
@@ -158,15 +162,34 @@ class CalendarioService
     }
 
     /**
-     * Catálogos que no cambian durante el año (especialidades y secciones,
-     * pedido de Josmy del 19/10/2026): con un año activo se rechaza la
-     * operación. ":anio" del mensaje se reemplaza por el año activo.
+     * Catálogos que no cambian durante el año (especialidades, pedido de Josmy
+     * del 19/10/2026, ajustado el 20/10/2026): se rechaza la operación solo si
+     * el año activo ya comenzó (llegó su fecha de inicio). Un año activo cuyas
+     * fechas aún no comienzan sí admite cambios. ":anio" y ":fecha" del mensaje
+     * se reemplazan por el año activo y su fecha de inicio.
      */
-    public function asegurarSinAnioActivo(string $mensaje): void
+    public function asegurarAnioActivoSinComenzar(string $mensaje): void
     {
-        if ($activo = AnioLectivo::activo()) {
-            throw new \DomainException(str_replace(':anio', (string) $activo->anio, $mensaje));
+        $activo = AnioLectivo::activo();
+        if ($activo && $activo->haComenzado()) {
+            throw new \DomainException(self::mensajeAnio($mensaje, $activo));
         }
+    }
+
+    /**
+     * Secciones (pedido de Josmy, 20/10/2026): las de un año lectivo se crean,
+     * modifican o eliminan mientras ese año no haya comenzado, esté activo o no.
+     */
+    public function asegurarAnioSinComenzar(AnioLectivo $anio, string $mensaje): void
+    {
+        if ($anio->haComenzado()) {
+            throw new \DomainException(self::mensajeAnio($mensaje, $anio));
+        }
+    }
+
+    private static function mensajeAnio(string $mensaje, AnioLectivo $anio): string
+    {
+        return strtr($mensaje, [':anio' => (string) $anio->anio, ':fecha' => $anio->fecha_inicio?->format('d/m/Y') ?? '']);
     }
 
     // --- Periodos ---
@@ -317,6 +340,17 @@ class CalendarioService
         }
 
         return $anio;
+    }
+
+    /**
+     * Pedido de Josmy (20/10/2026): una matrícula nueva solo se solicita entre
+     * inicio_matricula y fin_matricula del año lectivo (ambos días incluidos).
+     */
+    public function asegurarPeriodoDeMatricula(AnioLectivo $anio): void
+    {
+        if ($motivo = $anio->motivoMatriculaCerrada()) {
+            throw new \DomainException($motivo);
+        }
     }
 
     /**

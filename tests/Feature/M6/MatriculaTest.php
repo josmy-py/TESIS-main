@@ -26,6 +26,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Tests\Feature\M1\DatosM1;
+use Tests\Concerns\HoyFijo;
 use Tests\TestCase;
 
 /**
@@ -34,7 +35,7 @@ use Tests\TestCase;
  */
 class MatriculaTest extends TestCase
 {
-    use DatosM1, RefreshDatabase;
+    use DatosM1, RefreshDatabase, HoyFijo;
 
     private User $director;
     private User $a;
@@ -81,7 +82,8 @@ class MatriculaTest extends TestCase
 
     private function anio(string $nombre, string $estado = AnioLectivo::INACTIVO): AnioLectivo
     {
-        $anio = AnioLectivo::create(['anio' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30"]);
+        $anio = AnioLectivo::create(['anio' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30",
+            'inicio_matricula' => ($nombre - 2).'-01-01', 'fin_matricula' => "{$nombre}-11-30"]);
         $anio->forceFill(['estado' => $estado])->save();
 
         return $anio;

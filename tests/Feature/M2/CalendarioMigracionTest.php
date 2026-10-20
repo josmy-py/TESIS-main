@@ -144,7 +144,7 @@ class CalendarioMigracionTest extends TestCase
 
         // Un año migrado no se activa sin fechas; con fechas, sí
         $this->como($director)->postJson("/api/anios-lectivos/{$id['2026']}/activar")->assertStatus(409);
-        $this->como($director)->putJson("/api/anios-lectivos/{$id['2026']}", ['anio' => 2026, 'fecha_inicio' => '2026-01-15', 'fecha_fin' => '2026-11-30'])->assertOk();
+        $this->como($director)->putJson("/api/anios-lectivos/{$id['2026']}", ['anio' => 2026, 'fecha_inicio' => '2026-01-15', 'fecha_fin' => '2026-11-30', 'inicio_matricula' => '2025-11-01', 'fin_matricula' => '2026-02-28'])->assertOk();
         $this->como($director)->postJson("/api/anios-lectivos/{$id['2026']}/activar")->assertStatus(409);
         $nuevo = $this->como($director)->postJson("/api/anios-lectivos/{$id['2026']}/periodos", ['nombre_periodo' => 'Primer trimestre', 'nivel' => 1])->assertCreated()->json('periodo.id');
         $this->como($director)->postJson("/api/anios-lectivos/{$id['2026']}/activar")->assertOk();

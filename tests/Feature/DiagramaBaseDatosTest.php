@@ -34,7 +34,8 @@ class DiagramaBaseDatosTest extends TestCase
         'especialidades' => ['nombre'],
         'plan_estudios' => ['nombre', 'especialidad_id', 'estado', 'fecha_inicio', 'fecha_fin', 'descripcion', 'fecha_aprobacion'],
         'asignaturas' => ['nombre', 'plan_estudio_id'],
-        'anios_lectivos' => ['anio', 'fecha_inicio', 'fecha_fin', 'estado'],
+        // inicio_matricula y fin_matricula: pedido de Josmy (20/10/2026), fuera del diagrama
+        'anios_lectivos' => ['anio', 'fecha_inicio', 'fecha_fin', 'inicio_matricula', 'fin_matricula', 'estado'],
         'secciones' => ['nombre', 'profesor_id', 'grado_id', 'capacidad', 'turno', 'anio_lectivo_id'],
         'grados' => ['nombre'],
         'profesores' => ['nombre', 'fecha_nacimiento', 'codigo', 'telefono', 'dui', 'direccion', 'user_id'],

@@ -12,6 +12,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Tests\Feature\M1\DatosM1;
+use Tests\Concerns\HoyFijo;
 use Tests\TestCase;
 
 /**
@@ -21,7 +22,7 @@ use Tests\TestCase;
  */
 class CalendarioMatriculaTest extends TestCase
 {
-    use DatosM1, DatosM2, RefreshDatabase;
+    use DatosM1, DatosM2, RefreshDatabase, HoyFijo;
 
     private User $director;
     private User $encargado;
@@ -55,7 +56,8 @@ class CalendarioMatriculaTest extends TestCase
 
     private function anio(string $nombre, string $estado = AnioLectivo::INACTIVO): AnioLectivo
     {
-        $anio = AnioLectivo::create(['anio' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30"]);
+        $anio = AnioLectivo::create(['anio' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30",
+            'inicio_matricula' => ($nombre - 2).'-01-01', 'fin_matricula' => "{$nombre}-11-30"]);
         $anio->forceFill(['estado' => $estado])->save();
 
         return $anio;
@@ -197,8 +199,8 @@ class CalendarioMatriculaTest extends TestCase
 
     public function test_sin_anio_indicado_usa_el_activo(): void
     {
-        $activo = $this->anio((string) (now()->year), AnioLectivo::ACTIVO);
-        $this->anio((string) (now()->year + 1));
+        $activo = $this->anio((string) (now()->year + 1), AnioLectivo::ACTIVO);
+        $this->anio((string) (now()->year + 2));
         $seccion = $this->seccion(['anio_lectivo_id' => $activo->id])->json('seccion.id');
 
         $this->matricular(['seccion_id' => $seccion])->assertCreated()->assertJsonPath('matricula.anio_lectivo_id', $activo->id);
@@ -236,5 +238,72 @@ class CalendarioMatriculaTest extends TestCase
         $this->como($this->director)->putJson("/api/secciones/{$seccion}", [
             'nombre' => 'A', 'capacidad' => 30, 'turno' => 'matutino', 'grado_id' => $this->grado->id, 'profesor_id' => $this->profesor, 'anio_lectivo_id' => $a->id,
         ])->assertOk()->assertJsonPath('seccion.capacidad', 30);
+    }
+
+    // --- Periodo de matrícula (pedido de Josmy, 20/10/2026) ---
+
+    public function test_matricula_solo_dentro_del_periodo_de_matricula(): void
+    {
+        $anio = $this->anio('2026', AnioLectivo::ACTIVO);
+        $anio->update(['inicio_matricula' => '2025-12-10', 'fin_matricula' => '2026-01-31']);
+        $seccion = $this->seccion(['anio_lectivo_id' => $anio->id, 'capacidad' => 10])->json('seccion.id');
+
+        // Antes del inicio (hoy 01/12/2025)
+        $this->matricular(['seccion_id' => $seccion])->assertStatus(409)
+            ->assertJsonPath('message', 'La matrícula del año lectivo 2026 aún no ha comenzado: se realiza del 10/12/2025 al 31/01/2026.');
+
+        // El primer y el último día cuentan
+        $this->fijarHoy('2025-12-10');
+        $this->matricular(['seccion_id' => $seccion])->assertCreated();
+        $this->fijarHoy('2026-01-31');
+        $this->matricular(['seccion_id' => $seccion])->assertCreated();
+
+        // Después del fin
+        $this->fijarHoy('2026-02-01');
+        $this->matricular(['seccion_id' => $seccion])->assertStatus(409)
+            ->assertJsonPath('message', 'La matrícula del año lectivo 2026 ya finalizó: se realizó del 10/12/2025 al 31/01/2026.');
+        $this->assertSame(2, \App\Models\Matricula::count());
+    }
+
+    public function test_sin_fechas_de_matricula_no_se_admiten_matriculas(): void
+    {
+        $anio = $this->anio('2026', AnioLectivo::ACTIVO);
+        $anio->update(['inicio_matricula' => null, 'fin_matricula' => null]);
+        $seccion = $this->seccion(['anio_lectivo_id' => $anio->id])->json('seccion.id');
+
+        $this->matricular(['seccion_id' => $seccion])->assertStatus(409)
+            ->assertJsonPath('message', 'El año lectivo 2026 aún no tiene fechas de matrícula. La dirección debe indicarlas en el año lectivo.');
+    }
+
+    public function test_el_encargado_ve_si_la_matricula_esta_abierta(): void
+    {
+        $anio = $this->anio('2026', AnioLectivo::ACTIVO);
+        $anio->update(['inicio_matricula' => '2025-12-10', 'fin_matricula' => '2026-01-31']);
+        $estudiante = $this->estudianteDe($this->encargado, $this->catalogos['distrito']);
+        $url = "/api/matriculas/estudiantes/{$estudiante->id}/opciones";
+
+        $this->como($this->encargado)->getJson($url)->assertOk()
+            ->assertJsonPath('permitido', false)
+            ->assertJsonPath('anio_lectivo.matricula_abierta', false)
+            ->assertJsonPath('mensaje', 'La matrícula del año lectivo 2026 aún no ha comenzado: se realiza del 10/12/2025 al 31/01/2026.');
+
+        $this->fijarHoy('2025-12-15');
+        $this->como($this->encargado)->getJson($url)->assertOk()
+            ->assertJsonPath('anio_lectivo.matricula_abierta', true)
+            ->assertJsonPath('anio_lectivo.inicio_matricula', '2025-12-10')
+            ->assertJsonPath('anio_lectivo.fin_matricula', '2026-01-31');
+    }
+
+    public function test_aprobar_una_solicitud_no_depende_del_periodo_de_matricula(): void
+    {
+        $anio = $this->anio('2026', AnioLectivo::ACTIVO);
+        $anio->update(['inicio_matricula' => '2025-11-01', 'fin_matricula' => '2025-12-15']);
+        $seccion = $this->seccion(['anio_lectivo_id' => $anio->id])->json('seccion.id');
+        $id = $this->matricular(['seccion_id' => $seccion])->assertCreated()->json('matricula.id');
+
+        // La dirección revisa las solicitudes pendientes aunque el periodo ya terminó
+        $this->fijarHoy('2025-12-20');
+        $this->como($this->director)->putJson("/api/matriculas/{$id}/estado", ['estado' => 'aprobado', 'seccion_id' => $seccion])->assertOk()
+            ->assertJsonPath('matricula.estado', 'aprobado');
     }
 }

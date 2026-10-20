@@ -16,6 +16,7 @@ use Database\Seeders\UsuarioPruebaSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\Feature\M1\DatosM1;
+use Tests\Concerns\HoyFijo;
 use Tests\TestCase;
 
 /**
@@ -23,7 +24,7 @@ use Tests\TestCase;
  */
 class SeccionesTest extends TestCase
 {
-    use DatosM1, RefreshDatabase;
+    use DatosM1, RefreshDatabase, HoyFijo;
 
     private User $director;
     private User $encargado;
@@ -40,7 +41,7 @@ class SeccionesTest extends TestCase
         $this->director = $this->usuario(User::ROL_DIRECTOR);
         $this->encargado = $this->usuario(User::ROL_ENCARGADO);
         $this->catalogos = $this->catalogosBasicos();
-        // Inactivo: con un año activo las secciones no se crean ni modifican (19/10/2026)
+        // Inactivo y sin comenzar (hoy fijo 01/12/2025): sus secciones se administran
         $this->anio = $this->anio('2026');
         $this->primero = Grado::create(['nombre' => 'Primer grado']);
         $this->segundo = Grado::create(['nombre' => 'Segundo grado']);
@@ -49,7 +50,8 @@ class SeccionesTest extends TestCase
 
     private function anio(string $nombre, string $estado = AnioLectivo::INACTIVO): AnioLectivo
     {
-        $anio = AnioLectivo::create(['anio' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30"]);
+        $anio = AnioLectivo::create(['anio' => $nombre, 'fecha_inicio' => "{$nombre}-01-15", 'fecha_fin' => "{$nombre}-11-30",
+            'inicio_matricula' => ($nombre - 2).'-01-01', 'fin_matricula' => "{$nombre}-11-30"]);
         $anio->forceFill(['estado' => $estado])->save();
 
         return $anio;
@@ -313,21 +315,32 @@ class SeccionesTest extends TestCase
         $this->como($this->director)->getJson('/api/secciones/999')->assertNotFound();
     }
 
-    public function test_con_anio_activo_no_se_crean_modifican_ni_eliminan(): void
+    public function test_secciones_se_bloquean_cuando_su_anio_comenzo(): void
     {
-        $id = $this->crear()->assertCreated()->json('seccion.id');
+        // Año activo cuyas fechas aún no comienzan (hoy 01/12/2025): sí se administra (20/10/2026)
         $this->anio->forceFill(['estado' => AnioLectivo::ACTIVO])->save();
-        $bloqueo = 'Hay un año lectivo activo (2026): las secciones no se pueden crear, modificar ni eliminar hasta que se cierre.';
+        $id = $this->crear()->assertCreated()->json('seccion.id');
+        $this->como($this->director)->putJson("/api/secciones/{$id}", $this->datos(['capacidad' => 25]))->assertOk();
+        $borrable = $this->crear(['nombre' => 'C', 'turno' => 'vespertino'])->assertCreated()->json('seccion.id');
+        $this->como($this->director)->deleteJson("/api/secciones/{$borrable}")->assertOk();
 
-        // También para un año planificado: el pedido es bloquear mientras haya un año activo
-        $planificado = $this->anio('2027');
-        $this->crear(['nombre' => 'B', 'anio_lectivo_id' => $planificado->id])->assertStatus(409)->assertJsonPath('message', $bloqueo);
+        // Desde la fecha de inicio del año (15/01/2026) sus secciones quedan fijas
+        $this->fijarHoy('2026-01-15');
+        $bloqueo = 'El año lectivo 2026 ya comenzó (15/01/2026): sus secciones no se pueden crear, modificar ni eliminar.';
+        $this->crear(['nombre' => 'B'])->assertStatus(409)->assertJsonPath('message', $bloqueo);
         $this->como($this->director)->putJson("/api/secciones/{$id}", $this->datos(['capacidad' => 20]))->assertStatus(409)->assertJsonPath('message', $bloqueo);
         $this->como($this->director)->deleteJson("/api/secciones/{$id}")->assertStatus(409)->assertJsonPath('message', $bloqueo);
-        $this->assertSame(30, Seccion::find($id)->capacidad);
+        $this->assertSame(25, Seccion::find($id)->capacidad);
+
+        // Las del año siguiente, que aún no comienza, se siguen preparando
+        $siguiente = $this->anio('2027');
+        $otra = $this->crear(['nombre' => 'B', 'anio_lectivo_id' => $siguiente->id])->assertCreated()->json('seccion.id');
+        $this->como($this->director)->putJson("/api/secciones/{$otra}", $this->datos(['nombre' => 'B', 'capacidad' => 20, 'anio_lectivo_id' => $siguiente->id]))->assertOk();
+        // ...pero no se pasan a un año ya comenzado
+        $this->como($this->director)->putJson("/api/secciones/{$otra}", $this->datos(['nombre' => 'B', 'capacidad' => 20]))->assertStatus(409)->assertJsonPath('message', $bloqueo);
 
         // La consulta sigue disponible
-        $this->como($this->director)->getJson('/api/secciones')->assertOk()->assertJsonCount(1, 'secciones');
+        $this->como($this->director)->getJson('/api/secciones?anio_lectivo_id='.$this->anio->id)->assertOk()->assertJsonCount(1, 'secciones');
     }
 
     public function test_solo_el_director_gestiona_secciones(): void

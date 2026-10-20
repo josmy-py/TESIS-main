@@ -16,7 +16,8 @@ class SeccionPruebaSeeder extends Seeder
     /**
      * Secciones de ejemplo (M2.4) a cargo de docente@siga.test (ProfesorPruebaSeeder).
      * Usa el año lectivo activo; si no hay, el último que no esté cerrado; si
-     * tampoco hay, crea el año de prueba 2027 (inactivo, con sus periodos).
+     * tampoco hay, crea el año de prueba 2027 (inactivo, con sus periodos y la
+     * matrícula abierta desde hoy).
      * Idempotente: no duplica grados, años ni secciones. No se ejecuta en producción.
      */
     public function run(): void
@@ -72,10 +73,14 @@ class SeccionPruebaSeeder extends Seeder
         }
 
         $calendario = app(CalendarioService::class);
+        $fin = self::ANIO_PRUEBA.'-11-30';
         $anio = $calendario->crear([
             'anio' => self::ANIO_PRUEBA,
             'fecha_inicio' => self::ANIO_PRUEBA.'-01-15',
-            'fecha_fin' => self::ANIO_PRUEBA.'-11-30',
+            'fecha_fin' => $fin,
+            // Matrícula abierta desde hoy hasta el fin del año de prueba
+            'inicio_matricula' => min(AnioLectivo::hoy()->toDateString(), $fin),
+            'fin_matricula' => $fin,
         ]);
         foreach ([1, 2, 3] as $nivel) {
             $calendario->agregarPeriodo($anio->id, ['nombre_periodo' => CalendarioService::nombrePredeterminado($nivel), 'nivel' => $nivel]);

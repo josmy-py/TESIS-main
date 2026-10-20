@@ -18,7 +18,8 @@ class EspecialidadController extends Controller
 {
     use RespondeErrores;
 
-    private const BLOQUEO = 'Hay un año lectivo activo (:anio): las especialidades no se pueden crear, modificar ni eliminar hasta que se cierre.';
+    // Pedido de Josmy (20/10/2026): solo se bloquean cuando el año activo ya comenzó
+    private const BLOQUEO = 'El año lectivo activo (:anio) ya comenzó (:fecha): las especialidades no se pueden crear, modificar ni eliminar hasta que se cierre.';
 
     public function __construct(private CalendarioService $calendario)
     {
@@ -35,7 +36,7 @@ class EspecialidadController extends Controller
     public function store(Request $request)
     {
         return $this->responder(function () use ($request) {
-            $this->calendario->asegurarSinAnioActivo(self::BLOQUEO);
+            $this->calendario->asegurarAnioActivoSinComenzar(self::BLOQUEO);
             $datos = $this->validar($request);
 
             $espe = Especialidad::create(['nombre' => $datos['nombre']]);
@@ -57,7 +58,7 @@ class EspecialidadController extends Controller
     {
         return $this->responder(function () use ($request, $id) {
             $espe = Especialidad::findOrFail($id);
-            $this->calendario->asegurarSinAnioActivo(self::BLOQUEO);
+            $this->calendario->asegurarAnioActivoSinComenzar(self::BLOQUEO);
             $datos = $this->validar($request, $espe->id);
 
             $espe->update(['nombre' => $datos['nombre']]);
@@ -70,7 +71,7 @@ class EspecialidadController extends Controller
     {
         return $this->responder(function () use ($id) {
             $espe = Especialidad::findOrFail($id);
-            $this->calendario->asegurarSinAnioActivo(self::BLOQUEO);
+            $this->calendario->asegurarAnioActivoSinComenzar(self::BLOQUEO);
 
             if ($espe->matricula()->exists()) {
                 throw new \DomainException('No se puede eliminar la especialidad porque tiene matrículas asociadas.');

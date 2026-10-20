@@ -27,16 +27,18 @@ use Illuminate\Validation\ValidationException;
  * - D-A3: el docente de una asignación puede cambiarse conservando evaluaciones
  *   y notas; el cambio queda registrado en storage/logs/asignaciones-*.log. No
  *   se elimina una asignación con evaluaciones o boletas.
- * - D-A4: años activos e inactivos admiten cambios; los cerrados no.
+ * - D-A4: años activos e inactivos admiten cambios; los cerrados no. Se
+ *   asigna haya o no un año activo (Josmy, 20/10/2026): sin año activo se usa
+ *   el año inactivo más reciente.
  * - D-A6: sin límite de materias u horas por docente.
  * DomainException responde 409 y ValidationException 422.
  */
 class AsignacionService
 {
-    /** Filtros: anio_lectivo_id (por defecto el activo), profesor_id, seccion_id y grado_id. */
+    /** Filtros: anio_lectivo_id (por defecto el activo o, sin activo, el próximo), profesor_id, seccion_id y grado_id. */
     public function listar(array $filtros = []): array
     {
-        $anioId = $filtros['anio_lectivo_id'] ?? AnioLectivo::activo()?->id;
+        $anioId = $filtros['anio_lectivo_id'] ?? $this->anioPredeterminado()?->id;
 
         $asignaciones = $this->consulta()
             ->when($anioId, fn ($q) => $q->whereHas('seccion', fn ($s) => $s->where('anio_lectivo_id', $anioId)))
@@ -179,12 +181,13 @@ class AsignacionService
 
     /**
      * Carga académica del docente en sesión (tesis, págs. 58 y 68): solo sus
-     * asignaciones, del año lectivo activo salvo que pida otro.
+     * asignaciones, del año lectivo activo (o, sin activo, del próximo) salvo
+     * que pida otro.
      */
     public function cargaDeDocente(User $user, $anioLectivoId = null): array
     {
         $profesor = $user->profesor;
-        $anio = $anioLectivoId ? AnioLectivo::find($anioLectivoId) : AnioLectivo::activo();
+        $anio = $anioLectivoId ? AnioLectivo::find($anioLectivoId) : $this->anioPredeterminado();
 
         if (! $profesor || ! $anio) {
             return [
@@ -249,6 +252,13 @@ class AsignacionService
             'duplicadas' => $duplicadas,
             'secciones_con_varios_planes' => $variosPlanes,
         ];
+    }
+
+    // Año activo; si no hay, el inactivo más reciente (el que se está preparando)
+    private function anioPredeterminado(): ?AnioLectivo
+    {
+        return AnioLectivo::activo()
+            ?? AnioLectivo::where('estado', AnioLectivo::INACTIVO)->orderByDesc('anio')->first();
     }
 
     // --- Reglas ---

@@ -26,8 +26,9 @@ class SeccionService
 {
     public const CONFLICTO_DUPLICADA = 'La sección ya está registrada para este grado en el año lectivo.';
 
-    // Pedido de Josmy (19/10/2026): las secciones no cambian mientras haya un año lectivo activo
-    public const BLOQUEO_ANIO_ACTIVO = 'Hay un año lectivo activo (:anio): las secciones no se pueden crear, modificar ni eliminar hasta que se cierre.';
+    // Pedido de Josmy (20/10/2026): las secciones de un año se crean, modifican o eliminan
+    // mientras ese año no haya comenzado (aunque esté activo); antes se bloqueaban con cualquier año activo
+    public const BLOQUEO_ANIO_COMENZADO = 'El año lectivo :anio ya comenzó (:fecha): sus secciones no se pueden crear, modificar ni eliminar.';
 
     /**
      * Filtros: anio_lectivo_id, grado_id y turno. Sin anio_lectivo_id se listan
@@ -59,8 +60,8 @@ class SeccionService
         $datos['nombre'] = Seccion::normalizarNombre($datos['nombre']);
 
         return DB::transaction(function () use ($datos) {
-            app(CalendarioService::class)->asegurarSinAnioActivo(self::BLOQUEO_ANIO_ACTIVO);
             $anio = $this->anioLectivo($datos['anio_lectivo_id']);
+            app(CalendarioService::class)->asegurarAnioSinComenzar($anio, self::BLOQUEO_ANIO_COMENZADO);
             $this->asegurarDocente($datos['profesor_id'], $datos['turno'], $anio->id);
             $this->asegurarNombreLibre($datos, $anio->id);
 
@@ -83,13 +84,17 @@ class SeccionService
 
         return DB::transaction(function () use ($id, $datos) {
             $seccion = Seccion::with('anioLectivo')->lockForUpdate()->findOrFail($id);
-            app(CalendarioService::class)->asegurarSinAnioActivo(self::BLOQUEO_ANIO_ACTIVO);
 
             if ($seccion->anioLectivo?->estado === AnioLectivo::CIERRE) {
                 throw ValidationException::withMessages(['anio_lectivo_id' => 'La sección pertenece a un año lectivo cerrado y no puede modificarse.']);
             }
+            if ($seccion->anioLectivo) {
+                app(CalendarioService::class)->asegurarAnioSinComenzar($seccion->anioLectivo, self::BLOQUEO_ANIO_COMENZADO);
+            }
 
             $anio = $this->anioLectivo($datos['anio_lectivo_id']);
+            // Si la pasa a otro año, ese año tampoco debe haber comenzado
+            app(CalendarioService::class)->asegurarAnioSinComenzar($anio, self::BLOQUEO_ANIO_COMENZADO);
             $tieneMatriculas = $seccion->matriculas()->exists();
 
             if ($seccion->anio_lectivo_id !== null && $seccion->anio_lectivo_id !== $anio->id && $tieneMatriculas) {
@@ -130,10 +135,12 @@ class SeccionService
     public function eliminar($id): void
     {
         $seccion = Seccion::with('anioLectivo')->findOrFail($id);
-        app(CalendarioService::class)->asegurarSinAnioActivo(self::BLOQUEO_ANIO_ACTIVO);
 
         if ($seccion->anioLectivo?->estado === AnioLectivo::CIERRE) {
             throw new \DomainException('La sección pertenece a un año lectivo cerrado y no puede eliminarse.');
+        }
+        if ($seccion->anioLectivo) {
+            app(CalendarioService::class)->asegurarAnioSinComenzar($seccion->anioLectivo, self::BLOQUEO_ANIO_COMENZADO);
         }
         if ($seccion->matriculas()->exists()) {
             throw new \DomainException('No se puede eliminar la sección porque tiene estudiantes matriculados.');

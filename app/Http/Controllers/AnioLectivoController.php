@@ -26,11 +26,23 @@ class AnioLectivoController extends Controller
         'fecha_fin.required' => 'La fecha de fin es obligatoria.',
         'fecha_fin.date' => 'La fecha de fin no es válida.',
         'fecha_fin.after' => 'La fecha de fin debe ser posterior a la fecha de inicio.',
+        'inicio_matricula.required' => 'La fecha de inicio de matrícula es obligatoria.',
+        'inicio_matricula.date' => 'La fecha de inicio de matrícula no es válida.',
+        'fin_matricula.required' => 'La fecha de fin de matrícula es obligatoria.',
+        'fin_matricula.date' => 'La fecha de fin de matrícula no es válida.',
+        'fin_matricula.after_or_equal' => 'La fecha de fin de matrícula no puede ser anterior a la de inicio de matrícula.',
+        'fin_matricula.before_or_equal' => 'La matrícula debe terminar a más tardar en la fecha de fin del año lectivo.',
         'nombre_periodo.required' => 'El nombre del periodo es obligatorio.',
         'nombre_periodo.max' => 'El nombre del periodo no debe exceder los 50 caracteres.',
         'nivel.required' => 'El nivel del periodo es obligatorio.',
         'nivel.integer' => 'El nivel debe ser un número entero.',
         'nivel.between' => 'El nivel debe estar entre 1 y '.CalendarioService::MAX_PERIODOS.'.',
+    ];
+
+    // Periodo de matrícula (pedido de Josmy, 20/10/2026): puede ser antes del inicio del año, pero termina a más tardar con el año
+    private const REGLAS_MATRICULA = [
+        'inicio_matricula' => 'required|date',
+        'fin_matricula' => 'required|date|after_or_equal:inicio_matricula|before_or_equal:fecha_fin',
     ];
 
     public function __construct(private CalendarioService $calendario)
@@ -72,7 +84,7 @@ class AnioLectivoController extends Controller
                 'anio' => 'required|integer|between:2000,2100|unique:anios_lectivos,anio',
                 'fecha_inicio' => 'required|date',
                 'fecha_fin' => 'required|date|after:fecha_inicio',
-            ], self::MENSAJES);
+            ] + self::REGLAS_MATRICULA, self::MENSAJES);
 
             return response()->json([
                 'message' => 'Año lectivo creado exitosamente',
@@ -90,7 +102,7 @@ class AnioLectivoController extends Controller
                 'anio' => ['required', 'integer', 'between:2000,2100', Rule::unique('anios_lectivos', 'anio')->ignore($id)],
                 'fecha_inicio' => 'required|date',
                 'fecha_fin' => 'required|date|after:fecha_inicio',
-            ], self::MENSAJES);
+            ] + self::REGLAS_MATRICULA, self::MENSAJES);
 
             return response()->json([
                 'message' => 'Año lectivo actualizado exitosamente',
