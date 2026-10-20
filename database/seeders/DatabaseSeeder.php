@@ -21,6 +21,7 @@ class DatabaseSeeder extends Seeder
             FamiliaPruebaSeeder::class,
             CatalogoSaludSeeder::class,
             MatriculaPruebaSeeder::class,
+            DatosAcademicosPruebaSeeder::class,
         ]);
     }
 }

@@ -32,7 +32,8 @@ class MigracionYSeedersTest extends TestCase
         $hash = User::where('email', 'director@siga.test')->value('password');
         $this->seed(DatabaseSeeder::class);
 
-        $this->assertSame(3, User::count());
+        // 3 cuentas de UsuarioPruebaSeeder + encargado.aprobado@siga.test (DatosAcademicosPruebaSeeder)
+        $this->assertSame(4, User::count());
         $this->assertSame(['DIRECTOR', 'DOCENTE', 'ENCARGADO'], Rol::orderBy('nombre')->pluck('nombre')->all());
         $this->assertSame(0, User::whereNull('rol_id')->count());
         $this->assertSame($hash, User::where('email', 'director@siga.test')->value('password'));
