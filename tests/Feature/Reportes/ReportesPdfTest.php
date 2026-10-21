@@ -16,13 +16,13 @@ class ReportesPdfTest extends TestCase
     public function test_cada_reporte_genera_un_pdf_con_el_encabezado(): void
     {
         $servicios = [
-            [app(ReportesAdminPdfService::class), ReportesAdminPdfService::VISTAS],
-            [app(ReportesProfesorPdfService::class), ReportesProfesorPdfService::VISTAS],
+            // Los reportes que ya tienen diseño necesitan datos: tienen su propia prueba
+            [app(ReportesAdminPdfService::class), ReportesAdminPdfService::VISTAS, ['academico', 'docente']],
+            [app(ReportesProfesorPdfService::class), ReportesProfesorPdfService::VISTAS, ['boleta', 'conducta', 'informe_profesor', 'rendimiento']],
         ];
 
-        foreach ($servicios as [$servicio, $vistas]) {
-            // Los reportes que ya tienen diseño necesitan datos: tienen su propia prueba
-            foreach (array_diff(array_keys($vistas), ['academico', 'boleta', 'docente', 'informe_profesor', 'rendimiento']) as $reporte) {
+        foreach ($servicios as [$servicio, $vistas, $conDatos]) {
+            foreach (array_diff(array_keys($vistas), $conDatos) as $reporte) {
                 $html = view($vistas[$reporte])->render();
                 $this->assertStringContainsString('COMPLEJO EDUCATIVO HACIENDA COLIMA', $html, $reporte);
                 $this->assertStringContainsString('DIRECCIÓN DEPARTAMENTAL DE EDUCACIÓN', $html, $reporte);

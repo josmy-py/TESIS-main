@@ -151,6 +151,35 @@ class ReporteController extends Controller
         }, 'Error al generar el reporte docente', 'Período no encontrado');
     }
 
+    // Reporte de Conducta de un estudiante (docente): PDF con dompdf
+    public function conductaPdf(Request $request)
+    {
+        return $this->responder(function () use ($request) {
+            $datos = $request->validate([
+                'grado_id' => 'required|integer',
+                'seccion_id' => 'required|integer',
+                'periodo_escolar_id' => 'required|integer',
+                'matricula_id' => 'required|integer',
+                'conducta' => 'required|string|max:80',
+                'descripcion_hechos' => 'required|string|max:1000',
+                'acciones_tomadas' => 'required|string|max:500',
+                'compromiso_mejora' => 'required|string|max:1000',
+            ], [
+                'grado_id.required' => 'Seleccione el grado.',
+                'seccion_id.required' => 'Seleccione la sección.',
+                'periodo_escolar_id.required' => 'Seleccione el período.',
+                'matricula_id.required' => 'Seleccione el estudiante.',
+                'conducta.required' => 'Seleccione el tipo de conducta.',
+                'descripcion_hechos.required' => 'Describa los hechos.',
+                'acciones_tomadas.required' => 'Indique las acciones tomadas.',
+                'acciones_tomadas.max' => 'Las acciones tomadas no pueden pasar de 500 caracteres.',
+                'compromiso_mejora.required' => 'Escriba el compromiso de mejora.',
+            ]);
+
+            return $this->pdfProfesor->generarConducta($request->user(), $datos)->stream('reporte_conducta.pdf');
+        }, 'Error al generar el reporte de conducta', 'Sección no encontrada');
+    }
+
     // Reporte de Rendimiento de una materia (docente): PDF con dompdf
     public function rendimientoPdf(Request $request)
     {

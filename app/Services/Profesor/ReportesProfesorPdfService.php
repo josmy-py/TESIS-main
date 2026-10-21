@@ -29,6 +29,11 @@ use InvalidArgumentException;
  * Reporte de Rendimiento (código de Josmy del 21/10/2026, ajustado): una materia
  * propia del docente en una sección; alumnos con matrícula aprobada y el promedio
  * de su boleta del período (sin boleta no cuenta para el promedio).
+ *
+ * Reporte de Conducta (código de Josmy del 21/10/2026, ajustado): estudiante con
+ * matrícula aprobada de una sección donde el docente enseña o es guía; el profesor
+ * es el docente que inició sesión. El tipo de conducta son valores fijos del
+ * formulario y nada se guarda en la base de datos.
  */
 class ReportesProfesorPdfService
 {
@@ -174,6 +179,43 @@ class ReportesProfesorPdfService
             'nota_destacado' => self::NOTA_DESTACADO,
             'destacados' => $conNota->where('promedio', '>=', self::NOTA_DESTACADO)->sortByDesc('promedio')->values()->all(),
             'observaciones' => $datos['observaciones'] ?? '',
+        ];
+    }
+
+    public function generarConducta(User $docente, array $datos): \Barryvdh\DomPDF\PDF
+    {
+        return $this->generar('conducta', $this->datosConducta($docente, $datos));
+    }
+
+    /** Datos de la vista profesor.conducta: estudiante, sección y período de la base más lo escrito en el formulario. */
+    public function datosConducta(User $docente, array $datos): array
+    {
+        $seccion = $this->conducta->seccionPropia($docente, $datos['seccion_id']);
+        if ((int) $seccion->grado_id !== (int) $datos['grado_id']) {
+            throw ValidationException::withMessages(['seccion_id' => 'La sección no pertenece al grado seleccionado.']);
+        }
+        $periodo = PeriodoEscolar::find($datos['periodo_escolar_id']);
+        if (! $periodo || (int) $periodo->anio_lectivo_id !== (int) $seccion->anio_lectivo_id) {
+            throw ValidationException::withMessages(['periodo_escolar_id' => 'El período no pertenece al año lectivo de la sección.']);
+        }
+        $matricula = $this->conducta->matriculas($seccion)->firstWhere('id', (int) $datos['matricula_id']);
+        if (! $matricula) {
+            throw ValidationException::withMessages(['matricula_id' => 'El estudiante no está matriculado en la sección seleccionada.']);
+        }
+        $lineas = fn (string $texto) => collect(preg_split('/\R/', $texto))->map(fn ($l) => trim($l))->filter()->values()->all();
+
+        return [
+            'anio' => $seccion->anioLectivo?->anio,
+            'estudiante' => $matricula->estudiante?->nombre,
+            'fecha_formateada' => FechaReporte::hoy(),
+            'profesor' => $docente->profesor?->nombre,
+            'grado' => $seccion->grado?->nombre,
+            'seccion' => $seccion->nombre,
+            'periodo' => $periodo->nombre,
+            'tipo_conducta' => $datos['conducta'],
+            'descripcion_hechos' => $datos['descripcion_hechos'],
+            'acciones_tomadas' => $lineas($datos['acciones_tomadas']),
+            'compromiso_mejora' => $datos['compromiso_mejora'],
         ];
     }
 }

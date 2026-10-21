@@ -175,4 +175,5 @@ Route::middleware(['auth:api', 'sesion', 'role:DOCENTE'])->group(function () {
     Route::post('docente/reportes/informe-profesor/pdf', [ReporteController::class, 'informeProfesorPdf']);
     Route::post('docente/reportes/libreta-notas/pdf', [ReporteController::class, 'libretaNotasPdf']);
     Route::post('docente/reportes/rendimiento/pdf', [ReporteController::class, 'rendimientoPdf']);
+    Route::post('docente/reportes/conducta/pdf', [ReporteController::class, 'conductaPdf']);
 });
