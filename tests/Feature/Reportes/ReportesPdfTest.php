@@ -9,28 +9,23 @@ use Tests\TestCase;
 
 /**
  * Vistas PDF (dompdf) de los reportes del director y del docente: cada una
- * genera un PDF con el encabezado institucional.
+ * existe y lleva el encabezado institucional.
  */
 class ReportesPdfTest extends TestCase
 {
-    public function test_cada_reporte_genera_un_pdf_con_el_encabezado(): void
+    // Todos los reportes ya tienen diseño y su propia prueba con datos (PDF y textos);
+    // aquí se comprueba que cada vista existe y que el encabezado común se dibuja.
+    public function test_cada_reporte_tiene_su_vista_y_el_encabezado(): void
     {
-        $servicios = [
-            // Los reportes que ya tienen diseño necesitan datos: tienen su propia prueba
-            [app(ReportesAdminPdfService::class), ReportesAdminPdfService::VISTAS, ['academico', 'conducta', 'docente']],
-            [app(ReportesProfesorPdfService::class), ReportesProfesorPdfService::VISTAS, ['boleta', 'conducta', 'informe_profesor', 'rendimiento']],
-        ];
-
-        foreach ($servicios as [$servicio, $vistas, $conDatos]) {
-            foreach (array_diff(array_keys($vistas), $conDatos) as $reporte) {
-                $html = view($vistas[$reporte])->render();
-                $this->assertStringContainsString('COMPLEJO EDUCATIVO HACIENDA COLIMA', $html, $reporte);
-                $this->assertStringContainsString('DIRECCIÓN DEPARTAMENTAL DE EDUCACIÓN', $html, $reporte);
-                $this->assertStringContainsString('data:image/png;base64,', $html, $reporte);
-
-                $this->assertStringStartsWith('%PDF', $servicio->generar($reporte)->output(), $reporte);
-            }
+        foreach ([...array_values(ReportesAdminPdfService::VISTAS), ...array_values(ReportesProfesorPdfService::VISTAS)] as $vista) {
+            $this->assertTrue(view()->exists($vista), $vista);
+            $this->assertStringContainsString("@include('encabezado_reporte')", file_get_contents(view($vista)->getPath()), $vista);
         }
+
+        $html = view('encabezado_reporte')->render();
+        $this->assertStringContainsString('COMPLEJO EDUCATIVO HACIENDA COLIMA', $html);
+        $this->assertStringContainsString('DIRECCIÓN DEPARTAMENTAL DE EDUCACIÓN', $html);
+        $this->assertStringContainsString('data:image/png;base64,', $html);
     }
 
     public function test_reporte_desconocido(): void

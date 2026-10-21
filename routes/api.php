@@ -153,6 +153,7 @@ Route::middleware(['auth:api', 'sesion', 'role:DIRECTOR'])->group(function () {
     Route::get('reportes/conducta/indicadores', [ReporteController::class, 'conductaIndicadores']);
     Route::post('reportes/conducta/pdf', [ReporteController::class, 'conductaDirectorPdf']);
     Route::get('reportes/institucional/indicadores', [ReporteController::class, 'institucionalIndicadores']);
+    Route::post('reportes/institucional/pdf', [ReporteController::class, 'institucionalPdf']);
     Route::post('reportes/docente/pdf', [ReporteController::class, 'docentePdf']);
 });
 

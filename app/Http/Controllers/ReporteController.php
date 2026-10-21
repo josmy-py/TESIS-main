@@ -159,6 +159,45 @@ class ReporteController extends Controller
         }, 'Error al calcular los indicadores institucionales', 'Período no encontrado');
     }
 
+    // Reporte Institucional (director): PDF con dompdf. Código de Josmy
+    // (generarReporteAdministrativo) ajustado: nivel y período en lugar de
+    // especialidad, la fecha la pone el backend y el correo es el de la cuenta.
+    public function institucionalPdf(Request $request)
+    {
+        return $this->responder(function () use ($request) {
+            $cantidad = 'nullable|integer|min:0|max:100000';
+            $datos = $request->validate([
+                'nivel' => ['required', Rule::in(ReportesAdminPdfService::NIVELES)],
+                'periodo_escolar_id' => 'required|integer|exists:periodo_escolares,id',
+                'nombre' => 'required|string|max:100',
+                'cargo' => ['required', Rule::in(['Director', 'Directora'])],
+                'descripcion_calificaciones' => 'nullable|string|max:3000',
+                'incidentes' => $cantidad,
+                'reportes_leves' => $cantidad,
+                'reportes_graves' => $cantidad,
+                'medidas_aplicadas' => $cantidad,
+                'descripcion_casos' => 'nullable|string|max:3000',
+                'total_actividades' => 'required|integer|min:0|max:1000',
+                'total_proyectos' => 'required|integer|min:0|max:1000',
+                'actividades' => 'nullable|array',
+                'actividades.*' => ['string', Rule::in(ReportesAdminPdfService::ACTIVIDADES)],
+                'descripcion_actividades' => 'nullable|string|max:3000',
+                'docentes_ausentes' => 'required|integer|min:0|max:100000',
+                'observaciones' => 'nullable|string|max:3000',
+            ], [
+                ...$this->mensajesAcademico(),
+                'nombre.required' => 'Ingrese el nombre del director.',
+                'total_actividades.required' => 'Ingrese el total de actividades.',
+                'total_proyectos.required' => 'Ingrese el total de proyectos.',
+                'docentes_ausentes.required' => 'Ingrese los docentes ausentes.',
+                'actividades.*.in' => 'La actividad no es válida.',
+            ]);
+            $datos['correo'] = $request->user()->email;
+
+            return $this->pdfAdmin->generarReporteInstitucional($datos)->stream('reporte_institucional.pdf');
+        }, 'Error al generar el reporte institucional', 'Período no encontrado');
+    }
+
     // Reporte Docente (director): total de docentes y activos del año del período, para el formulario
     public function docenteIndicadores(Request $request)
     {

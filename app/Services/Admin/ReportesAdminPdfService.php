@@ -40,7 +40,9 @@ use InvalidArgumentException;
  * y período salen de la base el total de estudiantes (matrícula total), el
  * promedio general y los destacados (promedio >= 9) y reprobados (< 7) según las
  * boletas del período, los nuevos ingresos (matrículas "Nuevo ingreso") y el
- * total de docentes con carga académica en el nivel. Lo demás se escribe.
+ * total de docentes con carga académica en el nivel. Lo demás se escribe. El PDF
+ * (código de Josmy generarReporteAdministrativo, ajustado) lleva las mismas
+ * secciones del formulario.
  */
 class ReportesAdminPdfService
 {
@@ -55,6 +57,9 @@ class ReportesAdminPdfService
 
     /** Medidas disciplinarias del formulario de conducta (casillas). */
     public const MEDIDAS = ['Amonestación Verbal', 'Amonestación Escrita', 'Citación a Padres', 'Suspensión'];
+
+    /** Actividades institucionales del formulario institucional (casillas). */
+    public const ACTIVIDADES = ['Acto Cívico', 'Feria Científica', 'Torneo Deportivo', 'Actividad Cultural'];
 
     public function generar(string $reporte, array $datos = []): \Barryvdh\DomPDF\PDF
     {
@@ -256,6 +261,45 @@ class ReportesAdminPdfService
             'estudiantes_reprobados' => $promedios->filter(fn ($p) => $p < PromocionService::NOTA_MINIMA)->count(),
             'total_docentes' => Asignacion::whereHas('seccion', fn ($q) => $q->where('anio_lectivo_id', $periodo->anio_lectivo_id)->whereIn('grado_id', $grados))
                 ->distinct()->count('profesor_id'),
+        ];
+    }
+
+    public function generarReporteInstitucional(array $datos): \Barryvdh\DomPDF\PDF
+    {
+        return $this->generar('institucional', $this->datosReporteInstitucional($datos));
+    }
+
+    /** Datos de la vista admin.institucional: indicadores de la base más lo llenado en el formulario. */
+    public function datosReporteInstitucional(array $datos): array
+    {
+        $periodo = PeriodoEscolar::findOrFail($datos['periodo_escolar_id']);
+        $indicadores = $this->indicadoresInstitucionales($datos['nivel'], $periodo->id);
+
+        if ((int) $datos['docentes_ausentes'] > $indicadores['total_docentes']) {
+            throw ValidationException::withMessages(['docentes_ausentes' => "No puede ser mayor que el total de docentes ({$indicadores['total_docentes']})."]);
+        }
+        $nulo = fn (string $campo) => isset($datos[$campo]) && $datos[$campo] !== '' ? $datos[$campo] : null;
+
+        return [
+            ...$indicadores,
+            'nivel' => $datos['nivel'],
+            'periodo' => $periodo->nombre,
+            'fecha_formateada' => FechaReporte::hoy(),
+            'nombre' => $datos['nombre'],
+            'cargo' => $datos['cargo'],
+            'correo' => $datos['correo'],
+            'descripcion_calificaciones' => $datos['descripcion_calificaciones'] ?? '',
+            'incidentes' => $nulo('incidentes'),
+            'reportes_leves' => $nulo('reportes_leves'),
+            'reportes_graves' => $nulo('reportes_graves'),
+            'medidas_aplicadas' => $nulo('medidas_aplicadas'),
+            'descripcion_casos' => $datos['descripcion_casos'] ?? '',
+            'total_actividades' => (int) $datos['total_actividades'],
+            'total_proyectos' => (int) $datos['total_proyectos'],
+            'actividades' => array_values(array_intersect(self::ACTIVIDADES, $datos['actividades'] ?? [])),
+            'descripcion_actividades' => $datos['descripcion_actividades'] ?? '',
+            'docentes_ausentes' => (int) $datos['docentes_ausentes'],
+            'observaciones' => $datos['observaciones'] ?? '',
         ];
     }
 }
