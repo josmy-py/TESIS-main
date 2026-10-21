@@ -31,9 +31,10 @@ use InvalidArgumentException;
  * en el sistema y se escriben en el formulario. Todos los PDF llevan la fecha del
  * día en que se generan (FechaReporte).
  *
- * Reporte de Conducta (formulario de Josmy del 21/10/2026): Total de Estudiantes
- * (matrículas aprobadas del año del período) sale de la base; la clasificación,
- * incidentes y medidas no existen en el sistema y se escriben en el formulario.
+ * Reporte de Conducta (formulario, código y diseño de Josmy del 21/10/2026):
+ * Total de Estudiantes (matrículas aprobadas del año del período) sale de la base;
+ * la clasificación, incidentes y medidas no existen en el sistema y se escriben
+ * en el formulario. Incidentes Registrados = leves + moderados + graves.
  *
  * Reporte Institucional (formulario de Josmy del 21/10/2026): por Nivel Académico
  * y período salen de la base el total de estudiantes (matrícula total), el
@@ -51,6 +52,9 @@ class ReportesAdminPdfService
     ];
 
     public const NIVELES = ['Parvularia', 'Educación Básica', 'Bachillerato'];
+
+    /** Medidas disciplinarias del formulario de conducta (casillas). */
+    public const MEDIDAS = ['Amonestación Verbal', 'Amonestación Escrita', 'Citación a Padres', 'Suspensión'];
 
     public function generar(string $reporte, array $datos = []): \Barryvdh\DomPDF\PDF
     {
@@ -187,6 +191,38 @@ class ReportesAdminPdfService
                 ->where('anio_lectivo_id', $periodo->anio_lectivo_id)
                 ->where('estado', 'aprobado')
                 ->count(),
+        ];
+    }
+
+    public function generarReporteConducta(array $datos): \Barryvdh\DomPDF\PDF
+    {
+        return $this->generar('conducta', $this->datosReporteConducta($datos));
+    }
+
+    /** Datos de la vista admin.conducta: total de estudiantes de la base más lo llenado en el formulario. */
+    public function datosReporteConducta(array $datos): array
+    {
+        $periodo = PeriodoEscolar::findOrFail($datos['periodo_escolar_id']);
+        $lineas = fn (?string $texto) => collect(preg_split('/\R/', (string) $texto))->map(fn ($l) => trim($l))->filter()->values()->all();
+        $cantidad = fn (string $campo) => (int) ($datos[$campo] ?? 0);
+
+        return [
+            ...$this->indicadoresConducta($periodo->id),
+            'periodo' => $periodo->nombre,
+            'fecha_formateada' => FechaReporte::hoy(),
+            'director' => $datos['director'],
+            'leves' => $cantidad('leves'),
+            'moderados' => $cantidad('moderados'),
+            'graves' => $cantidad('graves'),
+            'incidentes_registrados' => $cantidad('leves') + $cantidad('moderados') + $cantidad('graves'),
+            'incidentes' => $datos['incidentes'] ?? '',
+            // Casillas marcadas (en el orden del formulario) y después cada línea del detalle
+            'medidas' => [
+                ...array_values(array_intersect(self::MEDIDAS, $datos['medidas'] ?? [])),
+                ...$lineas($datos['detalle_medidas'] ?? null),
+            ],
+            'observaciones' => $datos['observaciones'] ?? '',
+            'recomendaciones' => $lineas($datos['recomendaciones'] ?? null),
         ];
     }
 

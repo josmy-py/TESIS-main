@@ -17,7 +17,7 @@ class ReportesPdfTest extends TestCase
     {
         $servicios = [
             // Los reportes que ya tienen diseño necesitan datos: tienen su propia prueba
-            [app(ReportesAdminPdfService::class), ReportesAdminPdfService::VISTAS, ['academico', 'docente']],
+            [app(ReportesAdminPdfService::class), ReportesAdminPdfService::VISTAS, ['academico', 'conducta', 'docente']],
             [app(ReportesProfesorPdfService::class), ReportesProfesorPdfService::VISTAS, ['boleta', 'conducta', 'informe_profesor', 'rendimiento']],
         ];
 

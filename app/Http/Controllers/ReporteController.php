@@ -118,6 +118,34 @@ class ReporteController extends Controller
         }, 'Error al calcular el total de estudiantes', 'Período no encontrado');
     }
 
+    // Reporte de Conducta (director): PDF con dompdf (código de Josmy adaptado al
+    // formulario del director: período, director y conteos; no hay estudiante ni docente)
+    public function conductaDirectorPdf(Request $request)
+    {
+        return $this->responder(function () use ($request) {
+            $cantidad = 'nullable|integer|min:0|max:100000';
+            $datos = $request->validate([
+                'periodo_escolar_id' => 'required|integer|exists:periodo_escolares,id',
+                'director' => 'required|string|max:100',
+                'leves' => $cantidad,
+                'moderados' => $cantidad,
+                'graves' => $cantidad,
+                'incidentes' => 'nullable|string|max:3000',
+                'medidas' => 'nullable|array',
+                'medidas.*' => ['string', Rule::in(ReportesAdminPdfService::MEDIDAS)],
+                'detalle_medidas' => 'nullable|string|max:3000',
+                'recomendaciones' => 'nullable|string|max:3000',
+                'observaciones' => 'nullable|string|max:3000',
+            ], [
+                ...$this->mensajesAcademico(),
+                'director.required' => 'Ingrese el nombre del director responsable.',
+                'medidas.*.in' => 'La medida disciplinaria no es válida.',
+            ]);
+
+            return $this->pdfAdmin->generarReporteConducta($datos)->stream('reporte_conducta.pdf');
+        }, 'Error al generar el reporte de conducta', 'Período no encontrado');
+    }
+
     // Reporte Institucional (director): indicadores del nivel en el período para el formulario
     public function institucionalIndicadores(Request $request)
     {
