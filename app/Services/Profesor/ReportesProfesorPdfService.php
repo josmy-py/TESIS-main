@@ -2,6 +2,8 @@
 
 namespace App\Services\Profesor;
 
+use App\Models\Asignacion;
+use App\Models\Boleta;
 use App\Models\PeriodoEscolar;
 use App\Models\User;
 use App\Services\ConductaService;
@@ -22,9 +24,15 @@ use InvalidArgumentException;
  * promedios salen del reporte de notas (ReporteService: el guía ve todas las
  * materias, los demás docentes solo las suyas) y el promedio general es el del
  * período, como en el formulario.
+ *
+ * Reporte de Rendimiento (código de Josmy del 21/10/2026, ajustado): una materia
+ * propia del docente en una sección; alumnos con matrícula aprobada y el promedio
+ * de su boleta del período (sin boleta no cuenta para el promedio).
  */
 class ReportesProfesorPdfService
 {
+    public const NOTA_DESTACADO = 9;
+
     public const VISTAS = [
         'boleta' => 'profesor.boleta',
         'conducta' => 'profesor.conducta',
@@ -119,6 +127,52 @@ class ReportesProfesorPdfService
                 'promedio' => $fila['promedios'][$m['asignacion_id']],
             ])->all(),
             'promedio_general' => $fila['promedio'],
+        ];
+    }
+
+    public function generarRendimiento(User $docente, array $datos): \Barryvdh\DomPDF\PDF
+    {
+        return $this->generar('rendimiento', $this->datosRendimiento($docente, $datos));
+    }
+
+    /** Datos de la vista profesor.rendimiento: boletas del período de una materia del docente. */
+    public function datosRendimiento(User $docente, array $datos): array
+    {
+        $asignacion = Asignacion::with(['seccion.grado:id,nombre', 'asignatura'])
+            ->where('profesor_id', $docente->profesor?->id ?? 0)
+            ->where('seccion_id', $datos['seccion_id'])
+            ->find($datos['asignacion_id']);
+        if (! $asignacion) {
+            throw ValidationException::withMessages(['asignacion_id' => 'La materia no está asignada a usted en la sección seleccionada.']);
+        }
+        $seccion = $asignacion->seccion;
+        if ((int) $seccion->grado_id !== (int) $datos['grado_id']) {
+            throw ValidationException::withMessages(['seccion_id' => 'La sección no pertenece al grado seleccionado.']);
+        }
+        $periodo = PeriodoEscolar::find($datos['periodo_escolar_id']);
+        if (! $periodo || (int) $periodo->anio_lectivo_id !== (int) $seccion->anio_lectivo_id) {
+            throw ValidationException::withMessages(['periodo_escolar_id' => 'El período no pertenece al año lectivo de la sección.']);
+        }
+
+        $boletas = Boleta::where('asignacion_id', $asignacion->id)->where('periodo_escolar_id', $periodo->id)->pluck('promedio', 'matricula_id');
+        $alumnos = $this->conducta->matriculas($seccion)->map(fn ($m) => [
+            'nombre' => $m->estudiante?->nombre,
+            'promedio' => isset($boletas[$m->id]) ? (float) $boletas[$m->id] : null,
+        ]);
+        $conNota = $alumnos->whereNotNull('promedio');
+
+        return [
+            'fecha_formateada' => now()->format('d/m/Y'),
+            'grado' => $seccion->grado?->nombre,
+            'seccion' => $seccion->nombre,
+            'profesor' => $datos['profesor'],
+            'materia' => $asignacion->asignatura?->nombre,
+            'periodo' => $periodo->nombre,
+            'total_estudiantes' => $alumnos->count(),
+            'promedio_general' => $conNota->isEmpty() ? null : round($conNota->avg('promedio'), 2),
+            'nota_destacado' => self::NOTA_DESTACADO,
+            'destacados' => $conNota->where('promedio', '>=', self::NOTA_DESTACADO)->sortByDesc('promedio')->values()->all(),
+            'observaciones' => $datos['observaciones'] ?? '',
         ];
     }
 }

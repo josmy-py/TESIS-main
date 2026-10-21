@@ -111,6 +111,29 @@ class ReporteController extends Controller
         }, 'Error al generar la libreta de notas', 'Sección no encontrada');
     }
 
+    // Reporte de Rendimiento de una materia (docente): PDF con dompdf
+    public function rendimientoPdf(Request $request)
+    {
+        return $this->responder(function () use ($request) {
+            $datos = $request->validate([
+                'grado_id' => 'required|integer',
+                'seccion_id' => 'required|integer',
+                'periodo_escolar_id' => 'required|integer',
+                'asignacion_id' => 'required|integer',
+                'profesor' => 'required|string|max:150',
+                'observaciones' => 'nullable|string|max:500',
+            ], [
+                'grado_id.required' => 'Seleccione el grado.',
+                'seccion_id.required' => 'Seleccione la sección.',
+                'periodo_escolar_id.required' => 'Seleccione el período.',
+                'asignacion_id.required' => 'Seleccione la asignatura.',
+                'profesor.required' => 'Ingrese el nombre del profesor.',
+            ]);
+
+            return $this->pdfProfesor->generarRendimiento($request->user(), $datos)->stream('reporte_rendimiento.pdf');
+        }, 'Error al generar el reporte de rendimiento');
+    }
+
     // Informe Profesor (docente): PDF con dompdf
     public function informeProfesorPdf(Request $request)
     {

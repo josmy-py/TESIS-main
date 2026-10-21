@@ -21,8 +21,8 @@ class ReportesPdfTest extends TestCase
         ];
 
         foreach ($servicios as [$servicio, $vistas]) {
-            // El académico, la libreta de notas y el informe de profesor necesitan datos: tienen su propia prueba
-            foreach (array_diff(array_keys($vistas), ['academico', 'boleta', 'informe_profesor']) as $reporte) {
+            // Los reportes que ya tienen diseño necesitan datos: tienen su propia prueba
+            foreach (array_diff(array_keys($vistas), ['academico', 'boleta', 'informe_profesor', 'rendimiento']) as $reporte) {
                 $html = view($vistas[$reporte])->render();
                 $this->assertStringContainsString('COMPLEJO EDUCATIVO HACIENDA COLIMA', $html, $reporte);
                 $this->assertStringContainsString('DIRECCIÓN DEPARTAMENTAL DE EDUCACIÓN', $html, $reporte);
