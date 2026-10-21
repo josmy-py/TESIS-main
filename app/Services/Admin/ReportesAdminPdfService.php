@@ -29,6 +29,10 @@ use InvalidArgumentException;
  * período) salen de la base; asistencia, evaluación y capacitaciones no existen
  * en el sistema y se escriben en el formulario. Todos los PDF llevan la fecha del
  * día en que se generan (FechaReporte).
+ *
+ * Reporte de Conducta (formulario de Josmy del 21/10/2026): Total de Estudiantes
+ * (matrículas aprobadas del año del período) sale de la base; la clasificación,
+ * incidentes y medidas no existen en el sistema y se escriben en el formulario.
  */
 class ReportesAdminPdfService
 {
@@ -163,6 +167,19 @@ class ReportesAdminPdfService
             'detalles_capacitaciones' => $datos['detalles_capacitaciones'] ?? '',
             'reconocimientos' => collect(preg_split('/\R/', (string) ($datos['reconocimientos'] ?? '')))->map(fn ($l) => trim($l))->filter()->values()->all(),
             'observaciones' => $datos['observaciones'] ?? '',
+        ];
+    }
+
+    /** Total de estudiantes con matrícula aprobada en el año del período (lo muestra el formulario de conducta). */
+    public function indicadoresConducta(int $periodoId): array
+    {
+        $periodo = PeriodoEscolar::findOrFail($periodoId);
+
+        return [
+            'total_estudiantes' => DB::table('matriculas')
+                ->where('anio_lectivo_id', $periodo->anio_lectivo_id)
+                ->where('estado', 'aprobado')
+                ->count(),
         ];
     }
 }

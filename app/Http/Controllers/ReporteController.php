@@ -108,6 +108,16 @@ class ReporteController extends Controller
         }, 'Error al generar la libreta de notas', 'Sección no encontrada');
     }
 
+    // Reporte de Conducta (director): total de estudiantes del año del período, para el formulario
+    public function conductaIndicadores(Request $request)
+    {
+        return $this->responder(function () use ($request) {
+            $datos = $request->validate(['periodo_escolar_id' => 'required|integer|exists:periodo_escolares,id'], $this->mensajesAcademico());
+
+            return response()->json($this->pdfAdmin->indicadoresConducta((int) $datos['periodo_escolar_id']));
+        }, 'Error al calcular el total de estudiantes', 'Período no encontrado');
+    }
+
     // Reporte Docente (director): total de docentes y activos del año del período, para el formulario
     public function docenteIndicadores(Request $request)
     {
