@@ -17,6 +17,7 @@ use App\Http\Controllers\ProfesorController;
 use App\Http\Controllers\MatriculaController;
 use App\Http\Controllers\NotasController;
 use App\Http\Controllers\ConductaController;
+use App\Http\Controllers\ConstanciaController;
 use App\Http\Controllers\ConsultaAcademicaController;
 use App\Http\Controllers\LibretaController;
 use App\Http\Controllers\ReporteController;
@@ -155,6 +156,9 @@ Route::middleware(['auth:api', 'sesion', 'role:DIRECTOR'])->group(function () {
     Route::get('reportes/institucional/indicadores', [ReporteController::class, 'institucionalIndicadores']);
     Route::post('reportes/institucional/pdf', [ReporteController::class, 'institucionalPdf']);
     Route::post('reportes/docente/pdf', [ReporteController::class, 'docentePdf']);
+    // Constancias (por ahora la de egresado)
+    Route::get('constancias/egresado', [ConstanciaController::class, 'egresado']);
+    Route::post('constancias/egresado/pdf', [ConstanciaController::class, 'egresadoPdf']);
 });
 
 // M4: cada docente consulta su propia carga académica (tesis, págs. 58 y 68)
