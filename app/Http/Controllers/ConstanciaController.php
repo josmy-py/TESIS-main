@@ -7,8 +7,8 @@ use App\Services\Admin\ConstanciasPdfService;
 use Illuminate\Http\Request;
 
 /**
- * Portal director > Constancias. Por ahora la de Egresado; la de Conducta se
- * hará después. No se guarda nada en la base de datos.
+ * Portal director > Constancias de Egresado y de Buena Conducta. No se guarda
+ * nada en la base de datos.
  */
 class ConstanciaController extends Controller
 {
@@ -44,6 +44,34 @@ class ConstanciaController extends Controller
 
             return $this->constancias->generarConstanciaEgresado($datos)->stream('constancia_egresado.pdf');
         }, 'Error al generar la constancia de egresado', self::NO_ENCONTRADO);
+    }
+
+    // Constancia de Buena Conducta: nombre y años lectivos del estudiante por NIE
+    public function conducta(Request $request)
+    {
+        return $this->responder(function () use ($request) {
+            $datos = $request->validate(['nie' => 'required|string|max:10'], $this->mensajes());
+
+            return response()->json($this->constancias->conducta($datos['nie']));
+        }, 'Error al buscar el estudiante', self::NO_ENCONTRADO);
+    }
+
+    // Constancia de Buena Conducta: PDF con dompdf
+    public function conductaPdf(Request $request)
+    {
+        return $this->responder(function () use ($request) {
+            $datos = $request->validate([
+                'nie' => 'required|string|max:10',
+                'anio_lectivo' => 'required|digits:4',
+                'director' => 'required|string|max:100',
+            ], [
+                ...$this->mensajes(),
+                'anio_lectivo.required' => 'Seleccione el año lectivo.',
+                'director.required' => 'Ingrese el nombre del director(a).',
+            ]);
+
+            return $this->constancias->generarConstanciaConducta($datos)->stream('constancia_conducta.pdf');
+        }, 'Error al generar la constancia de conducta', self::NO_ENCONTRADO);
     }
 
     private function mensajes(): array

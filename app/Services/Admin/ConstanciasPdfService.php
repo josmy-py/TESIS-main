@@ -10,6 +10,7 @@ use App\Support\CatalogoGrados;
 use App\Support\FechaReporte;
 use Barryvdh\DomPDF\Facade\Pdf;
 use DomainException;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 
 /**
@@ -24,12 +25,18 @@ use InvalidArgumentException;
  * - Bachillerato General (o matrícula sin especialidad): Segundo año de bachillerato.
  * - Técnico Vocacional (cualquier otra especialidad): tercer año, que hoy no está
  *   en el catálogo de grados; mientras no exista no se puede emitir.
+ *
+ * Constancia de Buena Conducta (diseño de PDF de Josmy del 21/10/2026, sin
+ * validaciones de bachillerato): por el NIE salen el nombre y los años lectivos de
+ * sus matrículas aprobadas; el director elige el año que lleva la constancia.
+ *
  * No se guarda nada en la base de datos. La fecha es la del día en que se genera.
  */
 class ConstanciasPdfService
 {
     public const VISTAS = [
         'egresado' => 'constancias.egresado',
+        'conducta' => 'constancias.conducta',
     ];
 
     /** Orden del tercer año de bachillerato (solo modalidades técnicas, aún fuera del catálogo). */
@@ -102,6 +109,59 @@ class ConstanciasPdfService
             'estudiante' => $this->egresado($datos['nie']),
             'director' => $datos['director'],
             'fecha' => $this->fechaLarga(),
+        ];
+    }
+
+    /**
+     * Datos del estudiante para la constancia de conducta: nombre, NIE y años
+     * lectivos de sus matrículas aprobadas (el más reciente primero). Sin
+     * estudiante con ese NIE: 404; sin matrículas aprobadas: 409.
+     */
+    public function conducta(string $nie): array
+    {
+        $estudiante = Estudiante::where('nie', trim($nie))->firstOrFail();
+
+        $anios = Matricula::with('anioLectivo')
+            ->where('estudiante_id', $estudiante->id)
+            ->where('estado', 'aprobado')
+            ->get()
+            ->map(fn (Matricula $m) => $m->anioLectivo?->anio)
+            ->filter()
+            ->map(fn ($anio) => (string) $anio)
+            ->unique()
+            ->sortDesc()
+            ->values()
+            ->all();
+
+        if (! $anios) {
+            throw new DomainException("{$estudiante->nombre} no tiene matrículas aprobadas en la institución.");
+        }
+
+        return ['nombre' => $estudiante->nombre, 'nie' => $estudiante->nie, 'anios' => $anios];
+    }
+
+    public function generarConstanciaConducta(array $datos): \Barryvdh\DomPDF\PDF
+    {
+        return $this->generar('conducta', $this->datosConstanciaConducta($datos));
+    }
+
+    /** Datos de la vista constancias.conducta: estudiante por NIE, año elegido (uno de sus años) y director. */
+    public function datosConstanciaConducta(array $datos): array
+    {
+        $estudiante = $this->conducta($datos['nie']);
+        $anio = (string) $datos['anio_lectivo'];
+        if (! in_array($anio, $estudiante['anios'], true)) {
+            throw ValidationException::withMessages(['anio_lectivo' => "{$estudiante['nombre']} no tiene matrícula aprobada en el año lectivo {$anio}."]);
+        }
+        $hoy = now(FechaReporte::ZONA);
+
+        return [
+            'estudiante' => $estudiante,
+            'anio_lectivo' => $anio,
+            'director' => $datos['director'],
+            'dia' => $hoy->day,
+            'mes' => self::MESES[$hoy->month - 1],
+            'anio' => $hoy->year,
         ];
     }
 
