@@ -12,10 +12,8 @@
         .datos { width: 100%; border-collapse: collapse; }
         .datos td { width: 50%; padding: 6px 0; font-size: 10px; color: #4b5563; vertical-align: top; }
         .datos b { color: #111827; }
-        .tipo { margin: 18px 0 4px; border-collapse: collapse; }
-        .tipo td { vertical-align: middle; padding: 0; }
-        .tipo td.etq { font-size: 12px; color: #374151; padding-right: 8px; }
-        .tipo td.valor { border: 1px solid #d1d5db; border-radius: 4px; padding: 5px 10px; font-size: 12px; color: #111827; }
+        .tipo { margin: 20px 0 4px; font-size: 12px; color: #374151; }
+        .tipo span { color: #111827; }
         h2 { font-size: 12px; font-weight: normal; color: #374151; margin: 22px 0 8px; }
         p { text-align: justify; line-height: 1.55; margin: 0; font-size: 10.5px; color: #374151; }
         .acciones { width: 100%; border-collapse: collapse; }
@@ -49,7 +47,7 @@
         </table>
     </div>
 
-    <table class="tipo"><tr><td class="etq">TIPO DE CONDUCTA</td><td class="valor">{{ $tipo_conducta }}</td></tr></table>
+    <div class="tipo">TIPO DE CONDUCTA: <span>{{ $tipo_conducta }}</span></div>
 
     <h2>DESCRIPCIÓN DEL COMPORTAMIENTO OBSERVADO</h2>
     <p>{!! nl2br(e($descripcion_hechos)) !!}</p>

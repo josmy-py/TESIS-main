@@ -47,7 +47,7 @@ class ReporteConductaTest extends TestCase
 
         $html = view('profesor.conducta', app(ReportesProfesorPdfService::class)->datosConducta($this->cuentaOtroDocente, $this->datos()))->render();
         foreach (['COMPLEJO EDUCATIVO HACIENDA COLIMA', 'REPORTE DE CONDUCTA', 'Ana López', '10/06/2026', 'Docente 2', 'Primer grado',
-            'Primer trimestre (2026)', '<td class="valor">Regular</td>', 'Interrupciones ocasionales en clase.',
+            'Primer trimestre (2026)', 'TIPO DE CONDUCTA: <span>Regular</span>', 'Interrupciones ocasionales en clase.',
             '<td>Llamado de atención verbal.</td>', '<td>Comunicación con el responsable.</td>', 'Mantener una actitud respetuosa.',
             'Docente Responsable', 'Padre / Madre o Responsable', 'Director(a)'] as $texto) {
             $this->assertStringContainsString($texto, $html);
