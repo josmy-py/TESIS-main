@@ -227,9 +227,13 @@ class MatriculaTest extends TestCase
         $this->como($c)->getJson("/api/matriculas/estudiantes/{$sobrino->id}/opciones")->assertOk()
             ->assertJsonPath('responsable.tipo', null);
         $this->solicitar($sobrino, [], $c)->assertStatus(422)
-            ->assertJsonPath('errors.encargado_id.0', 'Falta el responsable: la cuenta no está vinculada como padre o madre del estudiante, así que debe registrar su perfil de encargado (Mi perfil) antes de matricular.');
+            ->assertJsonPath('errors.encargado_id.0', 'Falta el responsable: ninguno de los padres registrados es el responsable del estudiante, así que debe registrar al encargado (pestaña Encargado) antes de matricular.');
         $perfil = $this->como($c)->postJson('/api/encargados', $encargado('Tío C'))->assertCreated()->json('encargado');
         $this->assertSame($c->id, Encargado::find($perfil['id'])->user_id);
+        // Ya tiene responsable: el formulario muestra sus datos en lugar de pedirlos
+        $this->como($c)->getJson("/api/matriculas/estudiantes/{$sobrino->id}/opciones")->assertOk()
+            ->assertJsonPath('responsable.tipo', 'encargado')->assertJsonPath('responsable.falta', null)
+            ->assertJsonPath('responsable.direccion', 'Calle 2')->assertJsonPath('responsable.telefono', '7000-0001');
         // Ya con perfil de encargado no puede registrarse también como padre responsable
         $this->como($c)->postJson('/api/padres', ['nombre' => 'Tío C', 'dui' => \Database\Factories\UserFactory::duiValido(), 'es_encargado' => true])
             ->assertStatus(409)->assertJsonPath('message', 'Su cuenta ya tiene un perfil de encargado: el responsable de sus estudiantes es ese perfil.');

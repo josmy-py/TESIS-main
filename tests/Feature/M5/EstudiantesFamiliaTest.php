@@ -333,10 +333,16 @@ class EstudiantesFamiliaTest extends TestCase
         $datos = ['nombre' => 'Tía A', 'parentesco' => 'Tío(a)', 'telefono' => '7000-0001', 'direccion' => 'Calle 2'];
 
         $this->como($this->a)->postJson('/api/encargados', $datos + ['dui' => '000000018'])->assertCreated()
-            ->assertJsonPath('encargado.user_id', $this->a->id)->assertJsonPath('encargado.dui', '00000001-8');
+            ->assertJsonPath('encargado.user_id', $this->a->id)->assertJsonPath('encargado.dui', '00000001-8')
+            ->assertJsonPath('encargado.parentesco', 'Tío(a)')->assertJsonPath('encargado.telefono', '7000-0001')
+            ->assertJsonPath('encargado.direccion', 'Calle 2');
         $this->como($this->a)->postJson('/api/encargados', $datos + ['dui' => '00000009-2'])->assertStatus(409);
         $this->como($this->a)->postJson('/api/encargados', array_merge($datos, ['telefono' => '1234']) + ['dui' => '00000001-8'])
             ->assertStatus(422)->assertJsonValidationErrors('telefono');
+
+        // Nombre solo con letras y espacios, como el de los padres; la dirección es obligatoria
+        $this->como($this->b)->postJson('/api/encargados', array_merge($datos, ['nombre' => 'Tía 2', 'direccion' => '']) + ['dui' => '00000002-6'])
+            ->assertStatus(422)->assertJsonValidationErrors(['nombre', 'direccion']);
 
         $this->como($this->a)->getJson('/api/familia/perfil')->assertOk()
             ->assertJsonPath('encargado.nombre', 'Tía A')->assertJsonPath('padre', null)->assertJsonPath('cuenta.email', $this->a->email);

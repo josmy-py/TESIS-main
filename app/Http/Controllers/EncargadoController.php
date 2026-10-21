@@ -8,6 +8,7 @@ use App\Models\Padre;
 use App\Rules\Dui;
 use App\Services\EncargadoService;
 use App\Support\DuiFormato;
+use App\Support\NuevoPadre;
 use Illuminate\Http\Request;
 
 /** M5 (D3, D-E6): encargados que no son padre ni madre, y perfil familiar de la cuenta. */
@@ -104,16 +105,17 @@ class EncargadoController extends Controller
 
     private function validar(Request $request): array
     {
-        $request->merge(['dui' => DuiFormato::normalizar($request->dui)]);
+        $request->merge(['dui' => DuiFormato::normalizar($request->dui), 'nombre' => NuevoPadre::limpiarNombre($request->nombre)]);
 
         return $request->validate([
-            'nombre' => 'required|string|max:80',
+            'nombre' => ['required', 'string', 'max:80', NuevoPadre::REGLA_NOMBRE],
             'parentesco' => 'required|in:Tío(a),Abuelo(a),Hermano(a),Primo(a)',
             'telefono' => ['required', 'string', 'max:15', 'regex:/^[267][0-9]{3}-?[0-9]{4}$/'],
             'dui' => ['required', new Dui],
             'direccion' => 'required|string|max:100',
         ], [
             'nombre.required' => 'El nombre es obligatorio.',
+            'nombre.regex' => NuevoPadre::MENSAJE_NOMBRE,
             'parentesco.required' => 'El parentesco es obligatorio.',
             'parentesco.in' => 'El parentesco debe ser Tío(a), Abuelo(a), Hermano(a) o Primo(a).',
             'telefono.required' => 'El teléfono es obligatorio.',

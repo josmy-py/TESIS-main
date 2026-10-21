@@ -796,7 +796,7 @@ class MatriculaService
 
         $perfil = $estudiante->user_id ? Encargado::where('user_id', $estudiante->user_id)->first() : null;
         if (! $perfil) {
-            throw ValidationException::withMessages(['encargado_id' => 'Falta el responsable: la cuenta no está vinculada como padre o madre del estudiante, así que debe registrar su perfil de encargado (Mi perfil) antes de matricular.']);
+            throw ValidationException::withMessages(['encargado_id' => 'Falta el responsable: ninguno de los padres registrados es el responsable del estudiante, así que debe registrar al encargado (pestaña Encargado) antes de matricular.']);
         }
         if ($encargadoId && (int) $encargadoId !== (int) $perfil->id) {
             throw ValidationException::withMessages(['encargado_id' => 'El encargado seleccionado no es válido para este estudiante.']);
@@ -809,14 +809,16 @@ class MatriculaService
     public function responsablePara(Estudiante $estudiante): array
     {
         if ($padre = $this->padreDeLaCuenta($estudiante)) {
-            return ['tipo' => 'padre', 'id' => $padre->id, 'nombre' => $padre->nombre, 'dui' => $padre->dui, 'parentesco' => $padre->pivot->parentesco, 'falta' => null];
+            return ['tipo' => 'padre', 'id' => $padre->id, 'nombre' => $padre->nombre, 'dui' => $padre->dui, 'parentesco' => $padre->pivot->parentesco,
+                'telefono' => $padre->telefono, 'direccion' => null, 'falta' => null];
         }
         if ($perfil = $estudiante->user_id ? Encargado::where('user_id', $estudiante->user_id)->first() : null) {
-            return ['tipo' => 'encargado', 'id' => $perfil->id, 'nombre' => $perfil->nombre, 'dui' => $perfil->dui, 'parentesco' => $perfil->parentesco, 'falta' => null];
+            return ['tipo' => 'encargado', 'id' => $perfil->id, 'nombre' => $perfil->nombre, 'dui' => $perfil->dui, 'parentesco' => $perfil->parentesco,
+                'telefono' => $perfil->telefono, 'direccion' => $perfil->direccion, 'falta' => null];
         }
 
-        return ['tipo' => null, 'id' => null, 'nombre' => null, 'dui' => null, 'parentesco' => null,
-            'falta' => 'Registre su perfil de encargado en «Mi perfil» o vincúlese como padre o madre del estudiante antes de matricular.'];
+        return ['tipo' => null, 'id' => null, 'nombre' => null, 'dui' => null, 'parentesco' => null, 'telefono' => null, 'direccion' => null,
+            'falta' => 'Ninguno de los padres registrados es el responsable del estudiante: registre al encargado en la pestaña Encargado antes de matricular.'];
     }
 
     private function padreDeLaCuenta(?Estudiante $estudiante): ?Padre
