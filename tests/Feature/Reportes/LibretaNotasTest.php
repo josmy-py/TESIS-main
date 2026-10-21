@@ -26,6 +26,7 @@ class LibretaNotasTest extends TestCase
     {
         parent::setUp();
         $this->prepararSeccion();
+        $this->travelTo(now()->parse('2026-06-12 15:00:00', 'UTC'));
         $periodo = $this->periodos[0]->id;
         Boleta::create(['promedio' => 8.3, 'matricula_id' => $this->matriculas['Ana López'], 'asignacion_id' => $this->matematica->id, 'periodo_escolar_id' => $periodo]);
         Boleta::create(['promedio' => 9, 'matricula_id' => $this->matriculas['Ana López'], 'asignacion_id' => $this->lenguaje->id, 'periodo_escolar_id' => $periodo]);
@@ -34,7 +35,7 @@ class LibretaNotasTest extends TestCase
     private function datos(array $cambios = []): array
     {
         return array_merge([
-            'fecha' => '2026-06-12', 'grado_id' => $this->seccion->grado_id, 'seccion_id' => $this->seccion->id,
+            'grado_id' => $this->seccion->grado_id, 'seccion_id' => $this->seccion->id,
             'periodo_escolar_id' => $this->periodos[0]->id, 'matricula_id' => $this->matriculas['Ana López'],
             'conducta' => 'Excelente', 'conducta_descripcion' => 'Respeta las normas institucionales.', 'observaciones' => '',
         ], $cambios);

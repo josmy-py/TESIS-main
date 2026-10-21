@@ -2,12 +2,16 @@
 
 namespace App\Services\Admin;
 
+use App\Models\Asignacion;
 use App\Models\Grado;
 use App\Models\PeriodoEscolar;
+use App\Models\Profesor;
 use App\Services\PromocionService;
 use App\Support\CatalogoGrados;
+use App\Support\FechaReporte;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 
 /**
@@ -19,6 +23,12 @@ use InvalidArgumentException;
  * o Bachillerato según el grado de la sección) y por el período elegido. Los
  * indicadores salen de las boletas del período: el promedio de cada estudiante
  * es el de sus boletas y aprueba con PromocionService::NOTA_MINIMA.
+ *
+ * Reporte Docente (código de Josmy del 21/10/2026, ajustado): Total de Docentes
+ * (profesores registrados) y Docentes Activos (con carga académica en el año del
+ * período) salen de la base; asistencia, evaluación y capacitaciones no existen
+ * en el sistema y se escriben en el formulario. Todos los PDF llevan la fecha del
+ * día en que se generan (FechaReporte).
  */
 class ReportesAdminPdfService
 {
@@ -101,10 +111,57 @@ class ReportesAdminPdfService
             ...$datos,
             ...$this->indicadoresAcademicos($datos['nivel'], $periodo->id),
             'periodo' => $periodo->nombre,
-            'fecha_formateada' => date('d/m/Y', strtotime($datos['fecha'])),
+            'fecha_formateada' => FechaReporte::hoy(),
             'rendimiento_academico' => $datos['rendimiento_academico'] ?? '',
             'estudiantes_destacados' => $lista($datos['estudiantes_destacados'] ?? null),
             'recomendaciones' => $lista($datos['recomendaciones'] ?? null),
+            'observaciones' => $datos['observaciones'] ?? '',
+        ];
+    }
+
+    /** Total de docentes y los que tienen carga académica en el año del período (los muestra el formulario). */
+    public function indicadoresDocentes(int $periodoId): array
+    {
+        $periodo = PeriodoEscolar::findOrFail($periodoId);
+
+        return [
+            'total_docentes' => Profesor::count(),
+            'docentes_activos' => Asignacion::whereHas('seccion', fn ($q) => $q->where('anio_lectivo_id', $periodo->anio_lectivo_id))
+                ->distinct()->count('profesor_id'),
+        ];
+    }
+
+    public function generarReporteDocente(array $datos): \Barryvdh\DomPDF\PDF
+    {
+        return $this->generar('docente', $this->datosReporteDocente($datos));
+    }
+
+    /** Datos de la vista admin.docente: indicadores de la base más lo llenado en el formulario. */
+    public function datosReporteDocente(array $datos): array
+    {
+        $periodo = PeriodoEscolar::findOrFail($datos['periodo_escolar_id']);
+        $indicadores = $this->indicadoresDocentes($periodo->id);
+
+        // Ninguna cantidad de docentes puede pasar del total registrado
+        $mayores = collect(['docentes_ausentes', 'docentes_incapacitados', 'docentes_evaluados', 'docentes_participantes'])
+            ->filter(fn ($campo) => (int) ($datos[$campo] ?? 0) > $indicadores['total_docentes'])
+            ->mapWithKeys(fn ($campo) => [$campo => "No puede ser mayor que el total de docentes ({$indicadores['total_docentes']})."]);
+        if ($mayores->isNotEmpty()) {
+            throw ValidationException::withMessages($mayores->all());
+        }
+
+        return [
+            ...$datos,
+            ...$indicadores,
+            'periodo' => $periodo->nombre,
+            'fecha_formateada' => FechaReporte::hoy(),
+            'asistencia_promedio' => $datos['asistencia_promedio'] ?? null,
+            'promedio_evaluacion' => $datos['promedio_evaluacion'] ?? null,
+            'capacitaciones_realizadas' => $datos['capacitaciones_realizadas'] ?? null,
+            'docentes_participantes' => $datos['docentes_participantes'] ?? null,
+            'descripcion_general' => $datos['descripcion_general'] ?? '',
+            'detalles_capacitaciones' => $datos['detalles_capacitaciones'] ?? '',
+            'reconocimientos' => collect(preg_split('/\R/', (string) ($datos['reconocimientos'] ?? '')))->map(fn ($l) => trim($l))->filter()->values()->all(),
             'observaciones' => $datos['observaciones'] ?? '',
         ];
     }

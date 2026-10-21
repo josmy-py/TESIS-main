@@ -8,6 +8,7 @@ use App\Models\PeriodoEscolar;
 use App\Models\User;
 use App\Services\ConductaService;
 use App\Services\ReporteService;
+use App\Support\FechaReporte;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
@@ -66,7 +67,7 @@ class ReportesProfesorPdfService
             'seccion' => $contexto['seccion'],
             'periodo' => $contexto['periodo'],
             'profesor' => $datos['profesor'],
-            'fecha_formateada' => date('d/m/Y', strtotime($datos['fecha'])),
+            'fecha_formateada' => FechaReporte::hoy(),
             'asunto' => $datos['asunto'],
             'desarrollo' => $datos['desarrollo'],
             'observaciones' => $datos['observaciones'] ?? '',
@@ -113,7 +114,7 @@ class ReportesProfesorPdfService
         }
 
         return [
-            'fecha_formateada' => date('d/m/Y', strtotime($datos['fecha'])),
+            'fecha_formateada' => FechaReporte::hoy(),
             'grado' => $seccion->grado?->nombre,
             'seccion' => $seccion->nombre,
             'periodo' => $notas['periodo']->nombre,
@@ -162,7 +163,7 @@ class ReportesProfesorPdfService
         $conNota = $alumnos->whereNotNull('promedio');
 
         return [
-            'fecha_formateada' => now()->format('d/m/Y'),
+            'fecha_formateada' => FechaReporte::hoy(),
             'grado' => $seccion->grado?->nombre,
             'seccion' => $seccion->nombre,
             'profesor' => $datos['profesor'],

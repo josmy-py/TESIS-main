@@ -23,6 +23,7 @@ class ReporteAcademicoTest extends TestCase
     {
         parent::setUp();
         $this->prepararSeccion();
+        $this->travelTo(now()->parse('2026-06-12 15:00:00', 'UTC'));
         $this->director = $this->usuario(User::ROL_DIRECTOR);
 
         $periodo = $this->periodos[0]->id;
@@ -60,7 +61,7 @@ class ReporteAcademicoTest extends TestCase
     public function test_pdf_del_reporte_academico(): void
     {
         $datos = [
-            'nivel' => 'Educación Básica', 'periodo_escolar_id' => $this->periodos[0]->id, 'fecha' => '2026-06-12',
+            'nivel' => 'Educación Básica', 'periodo_escolar_id' => $this->periodos[0]->id,
             'nombre' => 'Directora de prueba', 'cargo' => 'Directora', 'correo' => 'direccion@siga.test',
             'rendimiento_academico' => 'Desempeño favorable.', 'estudiantes_destacados' => "Ana López - Primer grado\n\n",
             'recomendaciones' => "Refuerzo en Matemática\nMás lectura", 'observaciones' => 'Sin novedades.',

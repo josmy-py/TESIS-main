@@ -149,6 +149,8 @@ Route::middleware(['auth:api', 'sesion', 'role:DIRECTOR'])->group(function () {
     Route::get('reportes/conducta', [ReporteController::class, 'conducta']);
     Route::get('reportes/academico/indicadores', [ReporteController::class, 'academicoIndicadores']);
     Route::post('reportes/academico/pdf', [ReporteController::class, 'academicoPdf']);
+    Route::get('reportes/docente/indicadores', [ReporteController::class, 'docenteIndicadores']);
+    Route::post('reportes/docente/pdf', [ReporteController::class, 'docentePdf']);
 });
 
 // M4: cada docente consulta su propia carga académica (tesis, págs. 58 y 68)

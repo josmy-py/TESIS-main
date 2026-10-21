@@ -26,12 +26,14 @@ class InformeProfesorTest extends TestCase
     {
         parent::setUp();
         $this->prepararSeccion();
+        // La fecha del PDF es la del día en El Salvador (UTC-6): 9 de junio 03:00 UTC = 8 de junio
+        $this->travelTo(now()->parse('2026-06-09 03:00:00', 'UTC'));
     }
 
     private function datos(array $cambios = []): array
     {
         return array_merge([
-            'fecha' => '2026-06-08', 'grado_id' => $this->seccion->grado_id, 'seccion_id' => $this->seccion->id,
+            'grado_id' => $this->seccion->grado_id, 'seccion_id' => $this->seccion->id,
             'periodo_escolar_id' => $this->periodos[0]->id, 'profesor' => 'Prof. Gonzales',
             'asunto' => 'Rendimiento del grupo en el primer trimestre.',
             'desarrollo' => "El grupo mostró avances.\nSe reforzó la lectura.", 'observaciones' => '',

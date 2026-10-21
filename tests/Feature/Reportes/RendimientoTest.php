@@ -24,6 +24,7 @@ class RendimientoTest extends TestCase
     {
         parent::setUp();
         $this->prepararSeccion();
+        $this->travelTo(now()->parse('2026-06-12 15:00:00', 'UTC'));
         $periodo = $this->periodos[0]->id;
         // Ana 9.5 destacada, Zoila 7; Pedro (pendiente) no cuenta
         Boleta::create(['promedio' => 9.5, 'matricula_id' => $this->matriculas['Ana López'], 'asignacion_id' => $this->matematica->id, 'periodo_escolar_id' => $periodo]);
@@ -51,7 +52,7 @@ class RendimientoTest extends TestCase
 
         $html = view('profesor.rendimiento', $datos)->render();
         foreach (['COMPLEJO EDUCATIVO HACIENDA COLIMA', 'REPORTE DE RENDIMIENTO ACADÉMICO', 'Primer grado', 'Prof. González', 'Matemática',
-            'Primer trimestre', '<b>Total de estudiantes:</b> 2', '<b>Promedio general:</b> 8.25', 'PROMEDIO ≥ 9.0',
+            'Primer trimestre', '<b>Fecha:</b> 12/06/2026', '<b>Total de estudiantes:</b> 2', '<b>Promedio general:</b> 8.25', 'PROMEDIO ≥ 9.0',
             '<td>Ana López</td><td class="prom">9.5</td>', 'Grupo satisfactorio.', 'Director(a)'] as $texto) {
             $this->assertStringContainsString($texto, $html);
         }

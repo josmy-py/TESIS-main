@@ -41,7 +41,6 @@ class ReporteController extends Controller
             $datos = $request->validate([
                 'nivel' => ['required', Rule::in(ReportesAdminPdfService::NIVELES)],
                 'periodo_escolar_id' => 'required|integer|exists:periodo_escolares,id',
-                'fecha' => 'required|date',
                 'nombre' => 'required|string|max:150',
                 'cargo' => ['required', Rule::in(['Director', 'Directora'])],
                 'correo' => 'required|email|max:150',
@@ -91,7 +90,6 @@ class ReporteController extends Controller
     {
         return $this->responder(function () use ($request) {
             $datos = $request->validate([
-                'fecha' => 'required|date',
                 'grado_id' => 'required|integer',
                 'seccion_id' => 'required|integer',
                 'periodo_escolar_id' => 'required|integer',
@@ -100,7 +98,6 @@ class ReporteController extends Controller
                 'conducta_descripcion' => 'nullable|string|max:255',
                 'observaciones' => 'nullable|string|max:500',
             ], [
-                'fecha.required' => 'Ingrese la fecha.',
                 'grado_id.required' => 'Seleccione el grado.',
                 'seccion_id.required' => 'Seleccione la sección.',
                 'periodo_escolar_id.required' => 'Seleccione el período.',
@@ -109,6 +106,49 @@ class ReporteController extends Controller
 
             return $this->pdfProfesor->generarLibretaNotas($request->user(), $datos)->stream('libreta_notas.pdf');
         }, 'Error al generar la libreta de notas', 'Sección no encontrada');
+    }
+
+    // Reporte Docente (director): total de docentes y activos del año del período, para el formulario
+    public function docenteIndicadores(Request $request)
+    {
+        return $this->responder(function () use ($request) {
+            $datos = $request->validate(['periodo_escolar_id' => 'required|integer|exists:periodo_escolares,id'], $this->mensajesAcademico());
+
+            return response()->json($this->pdfAdmin->indicadoresDocentes((int) $datos['periodo_escolar_id']));
+        }, 'Error al calcular los indicadores de docentes', 'Período no encontrado');
+    }
+
+    // Reporte Docente (director): PDF con dompdf
+    public function docentePdf(Request $request)
+    {
+        return $this->responder(function () use ($request) {
+            $cantidad = 'required|integer|min:0|max:100000';
+            $datos = $request->validate([
+                'periodo_escolar_id' => 'required|integer|exists:periodo_escolares,id',
+                'director' => 'required|string|max:100',
+                'cargo' => ['required', Rule::in(['Director', 'Directora'])],
+                'docentes_ausentes' => $cantidad,
+                'docentes_incapacitados' => $cantidad,
+                'asistencia_promedio' => 'nullable|numeric|min:0|max:100',
+                'docentes_evaluados' => $cantidad,
+                'promedio_evaluacion' => 'nullable|numeric|min:0|max:10',
+                'descripcion_general' => 'nullable|string|max:3000',
+                'capacitaciones_realizadas' => 'nullable|integer|min:0|max:1000',
+                'docentes_participantes' => 'nullable|integer|min:0|max:100000',
+                'detalles_capacitaciones' => 'nullable|string|max:3000',
+                'reconocimientos' => 'nullable|string|max:3000',
+                'observaciones' => 'nullable|string|max:3000',
+            ], [
+                ...$this->mensajesAcademico(),
+                'director.required' => 'Ingrese el nombre del director.',
+                'docentes_ausentes.required' => 'Ingrese los docentes ausentes.',
+                'docentes_incapacitados.required' => 'Ingrese las incapacidades.',
+                'docentes_evaluados.required' => 'Ingrese los docentes evaluados.',
+            ]);
+            $datos['correo_usuario'] = $request->user()->email;
+
+            return $this->pdfAdmin->generarReporteDocente($datos)->stream('reporte_docente.pdf');
+        }, 'Error al generar el reporte docente', 'Período no encontrado');
     }
 
     // Reporte de Rendimiento de una materia (docente): PDF con dompdf
@@ -139,7 +179,6 @@ class ReporteController extends Controller
     {
         return $this->responder(function () use ($request) {
             $datos = $request->validate([
-                'fecha' => 'required|date',
                 'grado_id' => 'required|integer',
                 'seccion_id' => 'required|integer',
                 'periodo_escolar_id' => 'required|integer',
@@ -148,7 +187,6 @@ class ReporteController extends Controller
                 'desarrollo' => 'required|string|max:5000',
                 'observaciones' => 'nullable|string|max:3000',
             ], [
-                'fecha.required' => 'Ingrese la fecha.',
                 'grado_id.required' => 'Seleccione el grado.',
                 'seccion_id.required' => 'Seleccione la sección.',
                 'periodo_escolar_id.required' => 'Seleccione el período.',
@@ -168,7 +206,6 @@ class ReporteController extends Controller
             'nivel.in' => 'El nivel académico no es válido.',
             'periodo_escolar_id.required' => 'Seleccione el período.',
             'periodo_escolar_id.exists' => 'El período seleccionado no existe.',
-            'fecha.required' => 'Ingrese la fecha.',
             'nombre.required' => 'Ingrese el nombre del responsable.',
             'cargo.in' => 'El cargo no es válido.',
             'correo.required' => 'Ingrese el correo electrónico.',
