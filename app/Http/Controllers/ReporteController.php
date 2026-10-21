@@ -86,6 +86,31 @@ class ReporteController extends Controller
         ]);
     }
 
+    // Libreta de notas de un estudiante (docente): PDF con dompdf
+    public function libretaNotasPdf(Request $request)
+    {
+        return $this->responder(function () use ($request) {
+            $datos = $request->validate([
+                'fecha' => 'required|date',
+                'grado_id' => 'required|integer',
+                'seccion_id' => 'required|integer',
+                'periodo_escolar_id' => 'required|integer',
+                'matricula_id' => 'required|integer',
+                'conducta' => 'nullable|string|max:255',
+                'conducta_descripcion' => 'nullable|string|max:255',
+                'observaciones' => 'nullable|string|max:500',
+            ], [
+                'fecha.required' => 'Ingrese la fecha.',
+                'grado_id.required' => 'Seleccione el grado.',
+                'seccion_id.required' => 'Seleccione la sección.',
+                'periodo_escolar_id.required' => 'Seleccione el período.',
+                'matricula_id.required' => 'Seleccione el estudiante.',
+            ]);
+
+            return $this->pdfProfesor->generarLibretaNotas($request->user(), $datos)->stream('libreta_notas.pdf');
+        }, 'Error al generar la libreta de notas', 'Sección no encontrada');
+    }
+
     // Informe Profesor (docente): PDF con dompdf
     public function informeProfesorPdf(Request $request)
     {
