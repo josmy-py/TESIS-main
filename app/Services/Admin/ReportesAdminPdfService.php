@@ -7,6 +7,7 @@ use App\Models\Grado;
 use App\Models\PeriodoEscolar;
 use App\Models\Profesor;
 use App\Services\PromocionService;
+use App\Services\Profesor\ReportesProfesorPdfService;
 use App\Support\CatalogoGrados;
 use App\Support\FechaReporte;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -33,6 +34,12 @@ use InvalidArgumentException;
  * Reporte de Conducta (formulario de Josmy del 21/10/2026): Total de Estudiantes
  * (matrículas aprobadas del año del período) sale de la base; la clasificación,
  * incidentes y medidas no existen en el sistema y se escriben en el formulario.
+ *
+ * Reporte Institucional (formulario de Josmy del 21/10/2026): por Nivel Académico
+ * y período salen de la base el total de estudiantes (matrícula total), el
+ * promedio general y los destacados (promedio >= 9) y reprobados (< 7) según las
+ * boletas del período, los nuevos ingresos (matrículas "Nuevo ingreso") y el
+ * total de docentes con carga académica en el nivel. Lo demás se escribe.
  */
 class ReportesAdminPdfService
 {
@@ -180,6 +187,39 @@ class ReportesAdminPdfService
                 ->where('anio_lectivo_id', $periodo->anio_lectivo_id)
                 ->where('estado', 'aprobado')
                 ->count(),
+        ];
+    }
+
+    /** Indicadores del nivel en el período que muestra el formulario institucional. */
+    public function indicadoresInstitucionales(string $nivel, int $periodoId): array
+    {
+        $periodo = PeriodoEscolar::findOrFail($periodoId);
+        $grados = Grado::all()->filter(fn (Grado $g) => CatalogoGrados::nivel($g->orden) === $nivel)->pluck('id');
+
+        $matriculas = DB::table('matriculas')
+            ->join('secciones', 'secciones.id', '=', 'matriculas.seccion_id')
+            ->whereIn('secciones.grado_id', $grados)
+            ->where('secciones.anio_lectivo_id', $periodo->anio_lectivo_id)
+            ->where('matriculas.estado', 'aprobado');
+
+        // Promedio de cada estudiante en el período (sus boletas)
+        $promedios = (clone $matriculas)
+            ->join('boletas', 'boletas.matricula_id', '=', 'matriculas.id')
+            ->where('boletas.periodo_escolar_id', $periodo->id)
+            ->groupBy('matriculas.id')
+            ->selectRaw('AVG(boletas.promedio) as promedio')
+            ->pluck('promedio')
+            ->map(fn ($p) => (float) $p);
+
+        return [
+            'total_estudiantes' => (clone $matriculas)->count('matriculas.id'),
+            'nuevos_ingresos' => (clone $matriculas)->where('matriculas.ingreso', 'Nuevo ingreso')->count('matriculas.id'),
+            'estudiantes_evaluados' => $promedios->count(),
+            'promedio_general' => $promedios->isNotEmpty() ? round($promedios->avg(), 2) : null,
+            'estudiantes_destacados' => $promedios->filter(fn ($p) => $p >= ReportesProfesorPdfService::NOTA_DESTACADO)->count(),
+            'estudiantes_reprobados' => $promedios->filter(fn ($p) => $p < PromocionService::NOTA_MINIMA)->count(),
+            'total_docentes' => Asignacion::whereHas('seccion', fn ($q) => $q->where('anio_lectivo_id', $periodo->anio_lectivo_id)->whereIn('grado_id', $grados))
+                ->distinct()->count('profesor_id'),
         ];
     }
 }

@@ -118,6 +118,19 @@ class ReporteController extends Controller
         }, 'Error al calcular el total de estudiantes', 'Período no encontrado');
     }
 
+    // Reporte Institucional (director): indicadores del nivel en el período para el formulario
+    public function institucionalIndicadores(Request $request)
+    {
+        return $this->responder(function () use ($request) {
+            $datos = $request->validate([
+                'nivel' => ['required', Rule::in(ReportesAdminPdfService::NIVELES)],
+                'periodo_escolar_id' => 'required|integer|exists:periodo_escolares,id',
+            ], $this->mensajesAcademico());
+
+            return response()->json($this->pdfAdmin->indicadoresInstitucionales($datos['nivel'], (int) $datos['periodo_escolar_id']));
+        }, 'Error al calcular los indicadores institucionales', 'Período no encontrado');
+    }
+
     // Reporte Docente (director): total de docentes y activos del año del período, para el formulario
     public function docenteIndicadores(Request $request)
     {
