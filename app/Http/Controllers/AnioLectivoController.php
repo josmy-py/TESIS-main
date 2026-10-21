@@ -32,8 +32,8 @@ class AnioLectivoController extends Controller
         'fin_matricula.date' => 'La fecha de fin de matrícula no es válida.',
         'fin_matricula.after_or_equal' => 'La fecha de fin de matrícula no puede ser anterior a la de inicio de matrícula.',
         'fin_matricula.before_or_equal' => 'La matrícula debe terminar a más tardar en la fecha de fin del año lectivo.',
-        'nombre_periodo.required' => 'El nombre del periodo es obligatorio.',
-        'nombre_periodo.max' => 'El nombre del periodo no debe exceder los 50 caracteres.',
+        'nombre.required' => 'El nombre del periodo es obligatorio.',
+        'nombre.max' => 'El nombre del periodo no debe exceder los 50 caracteres.',
         'nivel.required' => 'El nivel del periodo es obligatorio.',
         'nivel.integer' => 'El nivel debe ser un número entero.',
         'nivel.between' => 'El nivel debe estar entre 1 y '.CalendarioService::MAX_PERIODOS.'.',
@@ -142,7 +142,7 @@ class AnioLectivoController extends Controller
             $this->calendario->obtener($id);
 
             $datos = $request->validate([
-                'nombre_periodo' => 'required|string|max:50',
+                'nombre' => 'required|string|max:50',
                 'nivel' => 'required|integer|between:1,'.CalendarioService::MAX_PERIODOS,
             ], self::MENSAJES);
 

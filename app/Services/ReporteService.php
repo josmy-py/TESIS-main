@@ -40,7 +40,7 @@ class ReporteService
     public function notas(User $user, Seccion $seccion, $periodoId): array
     {
         $periodo = $this->periodo($seccion, $periodoId);
-        $asignaciones = Asignacion::with('asignatura:id,nombre')->where('seccion_id', $seccion->id)
+        $asignaciones = Asignacion::with('asignatura')->where('seccion_id', $seccion->id)
             // El docente ve solo sus materias, salvo que sea el guía de la sección (libreta completa)
             ->when(! $user->esDirector() && ! $this->esGuia($user, $seccion), fn ($q) => $q->where('profesor_id', $user->profesor?->id ?? 0))
             ->get()->sortBy(fn ($a) => mb_strtolower((string) $a->asignatura?->nombre))->values();

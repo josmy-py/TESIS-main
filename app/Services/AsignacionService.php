@@ -4,7 +4,7 @@ namespace App\Services;
 
 use App\Models\AnioLectivo;
 use App\Models\Asignacion;
-use App\Models\Asignatura;
+use App\Models\PlanAsignatura;
 use App\Models\PlanEstudio;
 use App\Models\Profesor;
 use App\Models\Seccion;
@@ -18,12 +18,13 @@ use Illuminate\Validation\ValidationException;
 /**
  * M4: asignación académica (tesis, págs. 58, 65 y 68).
  *
- * Una asignación une un docente, una materia (asignatura) y una sección; el año
- * lectivo es el de la sección. Reglas aprobadas por Josmy (13/10/2026):
+ * Una asignación une un docente, una materia (asignatura de un plan, tabla
+ * plan_asignaturas del diagrama ER) y una sección; el año lectivo es el de la
+ * sección. Reglas aprobadas por Josmy (13/10/2026):
  * - D-A1: cada sección usa un único plan de estudios vigente de su grado. El
  *   plan de la sección es el de sus materias ya asignadas (sin columnas nuevas).
  * - D-A2: una materia de una sección la imparte un solo docente (API e índice
- *   único seccion_id + asignatura_id).
+ *   único seccion_id + plan_asignatura_id).
  * - D-A3: el docente de una asignación puede cambiarse conservando evaluaciones
  *   y notas; el cambio queda registrado en storage/logs/asignaciones-*.log. No
  *   se elimina una asignación con evaluaciones o boletas.
@@ -63,9 +64,9 @@ class AsignacionService
         return $this->guardando(function () use ($datos, $autor) {
             $profesor = $this->docenteActivo($datos['profesor_id']);
             $seccion = Seccion::with('anioLectivo', 'grado')->lockForUpdate()->findOrFail($datos['seccion_id']);
-            $asignatura = Asignatura::with('planEstudio')->findOrFail($datos['asignatura_id']);
+            $materia = PlanAsignatura::with('planEstudio', 'asignatura')->findOrFail($datos['plan_asignatura_id']);
 
-            $asignacion = $this->registrar($profesor, $seccion, $asignatura);
+            $asignacion = $this->registrar($profesor, $seccion, $materia);
             $this->bitacora('creada', $asignacion, $autor);
 
             return $this->obtener($asignacion->id);
@@ -118,7 +119,7 @@ class AsignacionService
      * crea las asignaciones marcadas y elimina las desmarcadas. Todo o nada: si
      * una sola regla falla, no se guarda ningún cambio.
      *
-     * @param  array<int, array{seccion_id:int, asignatura_id:int}>  $items
+     * @param  array<int, array{seccion_id:int, plan_asignatura_id:int}>  $items
      */
     public function guardarCarga($profesorId, $anioLectivoId, array $items, ?User $autor = null): array
     {
@@ -132,9 +133,9 @@ class AsignacionService
             $profesor = $items === [] ? Profesor::findOrFail($profesorId) : $this->docenteActivo($profesorId);
 
             $deseadas = collect($items)
-                ->map(fn ($i) => ['seccion_id' => (int) $i['seccion_id'], 'asignatura_id' => (int) $i['asignatura_id']])
-                ->unique(fn ($i) => $i['seccion_id'].'-'.$i['asignatura_id'])
-                ->keyBy(fn ($i) => $i['seccion_id'].'-'.$i['asignatura_id']);
+                ->map(fn ($i) => ['seccion_id' => (int) $i['seccion_id'], 'plan_asignatura_id' => (int) $i['plan_asignatura_id']])
+                ->unique(fn ($i) => $i['seccion_id'].'-'.$i['plan_asignatura_id'])
+                ->keyBy(fn ($i) => $i['seccion_id'].'-'.$i['plan_asignatura_id']);
 
             $secciones = Seccion::with('anioLectivo', 'grado')->whereIn('id', $deseadas->pluck('seccion_id')->unique())->lockForUpdate()->get()->keyBy('id');
             foreach ($deseadas as $item) {
@@ -149,7 +150,7 @@ class AsignacionService
                 ->whereHas('seccion', fn ($q) => $q->where('anio_lectivo_id', $anio->id))
                 ->lockForUpdate()
                 ->get()
-                ->keyBy(fn ($a) => $a->seccion_id.'-'.$a->asignatura_id);
+                ->keyBy(fn ($a) => $a->seccion_id.'-'.$a->plan_asignatura_id);
 
             $quitar = $actuales->diffKeys($deseadas);
             $agregar = $deseadas->diffKeys($actuales);
@@ -161,13 +162,13 @@ class AsignacionService
                 $asignacion->delete();
             }
 
-            $asignaturas = Asignatura::with('planEstudio')->whereIn('id', $agregar->pluck('asignatura_id'))->get()->keyBy('id');
+            $materias = PlanAsignatura::with('planEstudio', 'asignatura')->whereIn('id', $agregar->pluck('plan_asignatura_id'))->get()->keyBy('id');
             foreach ($agregar as $item) {
-                $asignatura = $asignaturas->get($item['asignatura_id']);
-                if (! $asignatura) {
+                $materia = $materias->get($item['plan_asignatura_id']);
+                if (! $materia) {
                     throw ValidationException::withMessages(['asignaciones' => 'Una de las materias seleccionadas no existe.']);
                 }
-                $nueva = $this->registrar($profesor, $secciones->get($item['seccion_id']), $asignatura);
+                $nueva = $this->registrar($profesor, $secciones->get($item['seccion_id']), $materia);
                 $this->bitacora('creada', $nueva, $autor);
             }
 
@@ -207,8 +208,8 @@ class AsignacionService
 
         $secciones = $asignaciones->groupBy('seccion_id')->map(fn (Collection $grupo) => [
             'seccion' => $grupo->first()->seccion,
-            'plan' => $grupo->first()->asignatura?->planEstudio,
-            'materias' => $grupo->map(fn ($a) => ['asignacion_id' => $a->id, 'id' => $a->asignatura_id, 'nombre' => $a->asignatura?->nombre])->values(),
+            'plan' => $grupo->first()->planAsignatura?->planEstudio,
+            'materias' => $grupo->map(fn ($a) => ['asignacion_id' => $a->id, 'id' => $a->plan_asignatura_id, 'nombre' => $a->asignatura?->nombre])->values(),
         ])->values();
 
         return [
@@ -223,8 +224,8 @@ class AsignacionService
     public function planDeSeccion(int $seccionId): ?PlanEstudio
     {
         $planId = Asignacion::where('seccion_id', $seccionId)
-            ->join('asignaturas', 'asignaturas.id', '=', 'asignaciones.asignatura_id')
-            ->value('asignaturas.plan_estudio_id');
+            ->join('plan_asignaturas', 'plan_asignaturas.id', '=', 'asignaciones.plan_asignatura_id')
+            ->value('plan_asignaturas.plan_estudio_id');
 
         return $planId ? PlanEstudio::find($planId) : null;
     }
@@ -236,13 +237,13 @@ class AsignacionService
     public function diagnostico(): array
     {
         $duplicadas = DB::table('asignaciones')
-            ->select('seccion_id', 'asignatura_id', DB::raw('COUNT(*) as total'), DB::raw('MIN(id) as primera_id'))
-            ->groupBy('seccion_id', 'asignatura_id')
+            ->select('seccion_id', 'plan_asignatura_id', DB::raw('COUNT(*) as total'), DB::raw('MIN(id) as primera_id'))
+            ->groupBy('seccion_id', 'plan_asignatura_id')
             ->havingRaw('COUNT(*) > 1')
             ->get()->map(fn ($f) => (array) $f)->all();
 
         $variosPlanes = DB::table('asignaciones as a')
-            ->join('asignaturas as m', 'm.id', '=', 'a.asignatura_id')
+            ->join('plan_asignaturas as m', 'm.id', '=', 'a.plan_asignatura_id')
             ->select('a.seccion_id', DB::raw('COUNT(DISTINCT m.plan_estudio_id) as planes'))
             ->groupBy('a.seccion_id')
             ->havingRaw('COUNT(DISTINCT m.plan_estudio_id) > 1')
@@ -263,15 +264,16 @@ class AsignacionService
 
     // --- Reglas ---
 
-    private function registrar(Profesor $profesor, Seccion $seccion, Asignatura $asignatura): Asignacion
+    private function registrar(Profesor $profesor, Seccion $seccion, PlanAsignatura $materia): Asignacion
     {
         $this->asegurarAnioAbierto($seccion, 'seccion_id');
         $etiqueta = $this->etiquetaSeccion($seccion);
-        $plan = $asignatura->planEstudio;
+        $plan = $materia->planEstudio;
+        $asignatura = $materia->asignatura;
 
         // La materia debe ser de un plan de estudio vigente
         if (! $plan || ! $plan->estado) {
-            throw ValidationException::withMessages(['asignatura_id' => "La materia {$asignatura->nombre} es del plan {$plan?->nombre}, que no está vigente."]);
+            throw ValidationException::withMessages(['plan_asignatura_id' => "La materia {$asignatura?->nombre} es del plan {$plan?->nombre}, que no está vigente."]);
         }
 
         // D-A1: un único plan por sección (sin mezclar especialidades)
@@ -282,16 +284,16 @@ class AsignacionService
 
         // D-A2: un solo docente por materia y sección
         $existente = Asignacion::with('profesor:id,nombre,codigo')
-            ->where('seccion_id', $seccion->id)->where('asignatura_id', $asignatura->id)->first();
+            ->where('seccion_id', $seccion->id)->where('plan_asignatura_id', $materia->id)->first();
         if ($existente) {
             throw new \DomainException((int) $existente->profesor_id === $profesor->id
-                ? "La materia {$asignatura->nombre} de {$etiqueta} ya está asignada a este docente."
-                : "La materia {$asignatura->nombre} de {$etiqueta} ya la imparte {$existente->profesor?->nombre}.");
+                ? "La materia {$asignatura?->nombre} de {$etiqueta} ya está asignada a este docente."
+                : "La materia {$asignatura?->nombre} de {$etiqueta} ya la imparte {$existente->profesor?->nombre}.");
         }
 
         return Asignacion::create([
             'profesor_id' => $profesor->id,
-            'asignatura_id' => $asignatura->id,
+            'plan_asignatura_id' => $materia->id,
             'seccion_id' => $seccion->id,
         ]);
     }
@@ -361,9 +363,10 @@ class AsignacionService
     {
         return Asignacion::with([
             'profesor:id,nombre,codigo,user_id',
-            'asignatura:id,nombre,plan_estudio_id',
-            'asignatura.planEstudio:id,nombre,especialidad_id,estado',
-            'asignatura.planEstudio.especialidad:id,nombre',
+            'planAsignatura:id,plan_estudio_id,asignatura_id',
+            'planAsignatura.planEstudio:id,nombre,especialidad_id,estado',
+            'planAsignatura.planEstudio.especialidad:id,nombre',
+            'asignatura',
             'seccion:id,nombre,turno,capacidad,grado_id,anio_lectivo_id,profesor_id',
             'seccion.grado:id,nombre',
             'seccion.anioLectivo:id,anio,estado',

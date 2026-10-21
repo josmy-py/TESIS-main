@@ -57,7 +57,8 @@ class AniosPeriodosDiagramaTest extends TestCase
 
         $this->assertFalse(Schema::hasColumn('anios_lectivos', 'nombre'));
         $this->assertSame([2026, 2027], DB::table('anios_lectivos')->orderBy('id')->pluck('anio')->map(fn ($v) => (int) $v)->all());
-        $this->assertSame('Primer trimestre', DB::table('periodo_escolares')->value('nombre_periodo'));
+        // 000019 (diagrama del 21/10/2026) devuelve el nombre a la columna nombre
+        $this->assertSame('Primer trimestre', DB::table('periodo_escolares')->value('nombre'));
         $this->assertSame('activo', DB::table('estudiantes')->where('id', $aprobado->id)->value('estado'));
         $this->assertSame('inscrito', DB::table('estudiantes')->where('id', $pendiente->id)->value('estado'));
 

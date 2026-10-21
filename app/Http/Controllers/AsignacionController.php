@@ -40,7 +40,7 @@ class AsignacionController extends Controller
         return $this->responder(function () use ($request) {
             $datos = $request->validate([
                 'profesor_id' => 'required|integer|exists:profesores,id',
-                'asignatura_id' => 'required|integer|exists:asignaturas,id',
+                'plan_asignatura_id' => 'required|integer|exists:plan_asignaturas,id',
                 'seccion_id' => 'required|integer|exists:secciones,id',
             ], $this->mensajes());
 
@@ -90,7 +90,7 @@ class AsignacionController extends Controller
                 'anio_lectivo_id' => 'required|integer|exists:anios_lectivos,id',
                 'asignaciones' => 'present|array',
                 'asignaciones.*.seccion_id' => 'required|integer|exists:secciones,id',
-                'asignaciones.*.asignatura_id' => 'required|integer|exists:asignaturas,id',
+                'asignaciones.*.plan_asignatura_id' => 'required|integer|exists:plan_asignaturas,id',
             ], $this->mensajes());
 
             $resultado = $this->asignacionService->guardarCarga($profesorId, $datos['anio_lectivo_id'], $datos['asignaciones'], $request->user());
@@ -131,8 +131,8 @@ class AsignacionController extends Controller
         return [
             'profesor_id.required' => 'El docente es obligatorio.',
             'profesor_id.exists' => 'El docente seleccionado no existe.',
-            'asignatura_id.required' => 'La materia es obligatoria.',
-            'asignatura_id.exists' => 'La materia seleccionada no existe.',
+            'plan_asignatura_id.required' => 'La materia es obligatoria.',
+            'plan_asignatura_id.exists' => 'La materia seleccionada no existe.',
             'seccion_id.required' => 'La sección es obligatoria.',
             'seccion_id.exists' => 'La sección seleccionada no existe.',
             'anio_lectivo_id.required' => 'El año lectivo es obligatorio.',
@@ -141,8 +141,8 @@ class AsignacionController extends Controller
             'asignaciones.array' => 'Las asignaciones deben enviarse como una lista.',
             'asignaciones.*.seccion_id.required' => 'Cada asignación necesita una sección.',
             'asignaciones.*.seccion_id.exists' => 'Una de las secciones seleccionadas no existe.',
-            'asignaciones.*.asignatura_id.required' => 'Cada asignación necesita una materia.',
-            'asignaciones.*.asignatura_id.exists' => 'Una de las materias seleccionadas no existe.',
+            'asignaciones.*.plan_asignatura_id.required' => 'Cada asignación necesita una materia.',
+            'asignaciones.*.plan_asignatura_id.exists' => 'Una de las materias seleccionadas no existe.',
         ];
     }
 }

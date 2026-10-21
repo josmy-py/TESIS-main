@@ -31,8 +31,14 @@ class PlanEstudio extends Model
         return $this->belongsTo(Especialidad::class, 'especialidad_id');
     }
 
+    // Diagrama ER (21/10/2026): las asignaturas del plan van en plan_asignaturas
     public function asignaturas()
     {
-        return $this->hasMany(Asignatura::class);
+        return $this->belongsToMany(Asignatura::class, 'plan_asignaturas')->withPivot('id')->withTimestamps();
+    }
+
+    public function planAsignaturas()
+    {
+        return $this->hasMany(PlanAsignatura::class);
     }
 }

@@ -14,8 +14,8 @@ use Illuminate\Validation\ValidationException;
 /**
  * Años lectivos y periodos escolares (M2.2), con las columnas del diagrama ER:
  * anios_lectivos(anio, fecha_inicio, fecha_fin, estado activo/inactivo/cierre)
- * y periodo_escolares(nombre_periodo, nivel = número del periodo, anio_lectivo_id,
- * estado pendiente/en_curso/cerrado).
+ * y periodo_escolares(nombre, nivel = número del periodo, anio_lectivo_id,
+ * estado pendiente/activo/cerrado).
  * El año se crea sin periodos; el director los agrega uno a uno y administra
  * su estado para cerrar cada trimestre o periodo (19/10/2026).
  *
@@ -129,7 +129,7 @@ class CalendarioService
             if ($anio->estado !== AnioLectivo::ACTIVO) {
                 throw new \DomainException('Solo puede cerrarse el año lectivo activo.');
             }
-            $abiertos = $anio->periodos()->where('estado', '<>', PeriodoEscolar::CERRADO)->orderBy('nivel')->pluck('nombre_periodo');
+            $abiertos = $anio->periodos()->where('estado', '<>', PeriodoEscolar::CERRADO)->orderBy('nivel')->pluck('nombre');
             if ($abiertos->isNotEmpty()) {
                 throw new \DomainException('Cierre todos los periodos antes de cerrar el año lectivo. Falta: '.$abiertos->implode(', ').'.');
             }
@@ -194,7 +194,7 @@ class CalendarioService
 
     // --- Periodos ---
 
-    /** Datos: nombre_periodo y nivel (número del periodo dentro del año, de 1 a MAX_PERIODOS). */
+    /** Datos: nombre y nivel (número del periodo dentro del año, de 1 a MAX_PERIODOS). */
     public function agregarPeriodo($anioId, array $datos): PeriodoEscolar
     {
         return DB::transaction(function () use ($anioId, $datos) {
@@ -209,10 +209,10 @@ class CalendarioService
             if ($anio->periodos()->where('nivel', $datos['nivel'])->exists()) {
                 throw ValidationException::withMessages(['nivel' => "El año lectivo {$anio->anio} ya tiene un periodo con el nivel {$datos['nivel']}."]);
             }
-            $this->asegurarNombrePeriodoLibre($anio, $datos['nombre_periodo']);
+            $this->asegurarNombrePeriodoLibre($anio, $datos['nombre']);
 
             return PeriodoEscolar::create([
-                'nombre_periodo' => $datos['nombre_periodo'],
+                'nombre' => $datos['nombre'],
                 'nivel' => $datos['nivel'],
                 'anio_lectivo_id' => $anio->id,
             ]);
@@ -228,9 +228,9 @@ class CalendarioService
             if ($anio->estado === AnioLectivo::CIERRE) {
                 throw new \DomainException('El año lectivo está cerrado y no puede modificarse.');
             }
-            $this->asegurarNombrePeriodoLibre($anio, $datos['nombre_periodo'], $periodo->id);
+            $this->asegurarNombrePeriodoLibre($anio, $datos['nombre'], $periodo->id);
 
-            $periodo->fill(['nombre_periodo' => $datos['nombre_periodo']]);
+            $periodo->fill(['nombre' => $datos['nombre']]);
             $periodo->save();
 
             return $periodo;
@@ -239,11 +239,11 @@ class CalendarioService
 
     /**
      * Estado del periodo (pedido de Josmy, 19/10/2026):
-     * - en_curso: desde pendiente, o para reabrir uno cerrado. Solo con el año
-     *   activo y sin otro periodo en curso en ese año.
-     * - cerrado: desde en_curso; cierra el trimestre o periodo (ya no se
+     * - activo: desde pendiente, o para reabrir uno cerrado. Solo con el año
+     *   activo y sin otro periodo activo en ese año.
+     * - cerrado: desde activo; cierra el trimestre o periodo (ya no se
      *   registran notas ni conducta en él).
-     * - pendiente: desde en_curso, si se puso en curso por error.
+     * - pendiente: desde activo, si se activó por error.
      */
     public function cambiarEstadoPeriodo($id, string $estado): PeriodoEscolar
     {
@@ -252,20 +252,20 @@ class CalendarioService
             $anio = $this->anioDelPeriodo($periodo);
 
             if ($periodo->estado === $estado) {
-                throw new \DomainException("El periodo {$periodo->nombre_periodo} ya está ".self::textoEstadoPeriodo($estado).'.');
+                throw new \DomainException("El periodo {$periodo->nombre} ya está ".self::textoEstadoPeriodo($estado).'.');
             }
             if ($anio->estado !== AnioLectivo::ACTIVO) {
                 throw new \DomainException("El año lectivo {$anio->anio} no está activo: no se puede cambiar el estado de sus periodos.");
             }
-            if ($estado === PeriodoEscolar::EN_CURSO) {
-                $otro = $anio->periodos()->where('estado', PeriodoEscolar::EN_CURSO)->whereKeyNot($periodo->id)->first();
+            if ($estado === PeriodoEscolar::ACTIVO) {
+                $otro = $anio->periodos()->where('estado', PeriodoEscolar::ACTIVO)->whereKeyNot($periodo->id)->first();
                 if ($otro) {
-                    throw new \DomainException("{$otro->nombre_periodo} sigue en curso: ciérrelo antes de iniciar otro periodo.");
+                    throw new \DomainException("{$otro->nombre} sigue activo: ciérrelo antes de iniciar otro periodo.");
                 }
-            } elseif ($periodo->estado !== PeriodoEscolar::EN_CURSO) {
+            } elseif ($periodo->estado !== PeriodoEscolar::ACTIVO) {
                 throw new \DomainException($estado === PeriodoEscolar::CERRADO
-                    ? 'Solo se puede cerrar un periodo en curso.'
-                    : 'Un periodo cerrado no vuelve a pendiente: si hace falta, póngalo de nuevo en curso.');
+                    ? 'Solo se puede cerrar un periodo activo.'
+                    : 'Un periodo cerrado no vuelve a pendiente: si hace falta, actívelo de nuevo.');
             }
 
             $this->cambiarEstado($periodo, $estado);
@@ -277,7 +277,7 @@ class CalendarioService
     public static function textoEstadoPeriodo(string $estado): string
     {
         return match ($estado) {
-            PeriodoEscolar::EN_CURSO => 'en curso',
+            PeriodoEscolar::ACTIVO => 'activo',
             PeriodoEscolar::CERRADO => 'cerrado',
             default => 'pendiente',
         };
@@ -381,7 +381,7 @@ class CalendarioService
                 ->orderBy('anio')->get(['id', 'anio', 'estado'])->toArray(),
             'anios_sin_periodos' => AnioLectivo::doesntHave('periodos')->orderBy('anio')->get(['id', 'anio', 'estado'])->toArray(),
             'periodos_sin_anio' => PeriodoEscolar::whereNull('anio_lectivo_id')->orWhereNull('nivel')
-                ->orderBy('id')->get(['id', 'nombre_periodo', 'nivel', 'anio_lectivo_id'])->toArray(),
+                ->orderBy('id')->get(['id', 'nombre', 'nivel', 'anio_lectivo_id'])->toArray(),
             'secciones_sin_anio' => Seccion::whereNull('anio_lectivo_id')->orderBy('id')->get(['id', 'nombre', 'grado_id'])->toArray(),
             'matriculas_sin_anio' => Matricula::whereNull('anio_lectivo_id')->orderBy('id')->get(['id', 'estudiante_id', 'seccion_id'])->toArray(),
             'matriculas_con_otro_anio_que_su_seccion' => Matricula::whereNotNull('seccion_id')->whereNotNull('anio_lectivo_id')->get(['id', 'anio_lectivo_id', 'seccion_id'])
@@ -412,8 +412,8 @@ class CalendarioService
     // Sin distinguir mayúsculas, tildes ni espacios repetidos
     private function asegurarNombrePeriodoLibre(AnioLectivo $anio, string $nombre, ?int $excepto = null): void
     {
-        if (NombreUnico::ocupado($anio->periodos()->when($excepto, fn ($q) => $q->where('id', '<>', $excepto)), 'nombre_periodo', $nombre)) {
-            throw ValidationException::withMessages(['nombre_periodo' => "El año lectivo {$anio->anio} ya tiene un periodo llamado «{$nombre}»."]);
+        if (NombreUnico::ocupado($anio->periodos()->when($excepto, fn ($q) => $q->where('id', '<>', $excepto)), 'nombre', $nombre)) {
+            throw ValidationException::withMessages(['nombre' => "El año lectivo {$anio->anio} ya tiene un periodo llamado «{$nombre}»."]);
         }
     }
 

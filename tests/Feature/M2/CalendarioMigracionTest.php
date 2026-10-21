@@ -123,7 +123,7 @@ class CalendarioMigracionTest extends TestCase
 
         // Periodos anteriores: se conservan nombre y nivel; no se les asigna año
         $periodos = DB::table('periodo_escolares')->orderBy('id')->get();
-        $this->assertSame([['Primer trimestre', 1], ['Anual', 7]], $periodos->map(fn ($p) => [$p->nombre_periodo, (int) $p->nivel])->all());
+        $this->assertSame([['Primer trimestre', 1], ['Anual', 7]], $periodos->map(fn ($p) => [$p->nombre, (int) $p->nivel])->all());
         $this->assertSame([null, null], $periodos->pluck('anio_lectivo_id')->all());
         // 000017 vuelve a agregar periodo_escolares.estado (pedido de Josmy, 19/10/2026): quedan pendientes
         $this->assertSame(['pendiente', 'pendiente'], $periodos->pluck('estado')->all());
@@ -146,7 +146,7 @@ class CalendarioMigracionTest extends TestCase
         $this->como($director)->postJson("/api/anios-lectivos/{$id['2026']}/activar")->assertStatus(409);
         $this->como($director)->putJson("/api/anios-lectivos/{$id['2026']}", ['anio' => 2026, 'fecha_inicio' => '2026-01-15', 'fecha_fin' => '2026-11-30', 'inicio_matricula' => '2025-11-01', 'fin_matricula' => '2026-02-28'])->assertOk();
         $this->como($director)->postJson("/api/anios-lectivos/{$id['2026']}/activar")->assertStatus(409);
-        $nuevo = $this->como($director)->postJson("/api/anios-lectivos/{$id['2026']}/periodos", ['nombre_periodo' => 'Primer trimestre', 'nivel' => 1])->assertCreated()->json('periodo.id');
+        $nuevo = $this->como($director)->postJson("/api/anios-lectivos/{$id['2026']}/periodos", ['nombre' => 'Primer trimestre', 'nivel' => 1])->assertCreated()->json('periodo.id');
         $this->como($director)->postJson("/api/anios-lectivos/{$id['2026']}/activar")->assertOk();
 
         // 3. Revertir y volver a aplicar conserva los datos

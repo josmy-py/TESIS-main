@@ -3,6 +3,7 @@
 namespace Tests\Feature\M4;
 
 use App\Models\AnioLectivo;
+use App\Models\PlanAsignatura;
 use App\Models\Asignacion;
 use App\Models\Asignatura;
 use App\Models\Grado;
@@ -17,6 +18,7 @@ use Database\Seeders\SeccionPruebaSeeder;
 use Database\Seeders\UsuarioPruebaSeeder;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Tests\Feature\M1\DatosM1;
@@ -40,8 +42,8 @@ class AsignacionesTest extends TestCase
     private Profesor $otroDocente;
     private Seccion $seccion;
     private PlanEstudio $plan;
-    private Asignatura $matematica;
-    private Asignatura $lenguaje;
+    private PlanAsignatura $matematica;
+    private PlanAsignatura $lenguaje;
 
     protected function setUp(): void
     {
@@ -57,8 +59,8 @@ class AsignacionesTest extends TestCase
         $this->otroDocente = $this->nuevoDocente();
         $this->seccion = $this->seccion($this->primero);
         $this->plan = $this->plan($this->primero);
-        $this->matematica = Asignatura::create(['nombre' => 'Matemática', 'plan_estudio_id' => $this->plan->id]);
-        $this->lenguaje = Asignatura::create(['nombre' => 'Lenguaje', 'plan_estudio_id' => $this->plan->id]);
+        $this->matematica = PlanAsignatura::enlazar($this->plan->id, 'Matemática');
+        $this->lenguaje = PlanAsignatura::enlazar($this->plan->id, 'Lenguaje');
     }
 
     // --- Utilidades ---
@@ -103,7 +105,7 @@ class AsignacionesTest extends TestCase
     private function asignar(array $cambios = [])
     {
         return $this->como($this->director)->postJson('/api/asignaciones', $cambios + [
-            'profesor_id' => $this->docente->id, 'seccion_id' => $this->seccion->id, 'asignatura_id' => $this->matematica->id,
+            'profesor_id' => $this->docente->id, 'seccion_id' => $this->seccion->id, 'plan_asignatura_id' => $this->matematica->id,
         ]);
     }
 
@@ -111,19 +113,19 @@ class AsignacionesTest extends TestCase
     {
         return $this->como($this->director)->putJson("/api/profesores/{$profesor->id}/carga", [
             'anio_lectivo_id' => ($anio ?? $this->anio)->id,
-            'asignaciones' => array_map(fn ($p) => ['seccion_id' => $p[0]->id, 'asignatura_id' => $p[1]->id], $pares),
+            'asignaciones' => array_map(fn ($p) => ['seccion_id' => $p[0]->id, 'plan_asignatura_id' => $p[1]->id], $pares),
         ]);
     }
 
     private function conEvaluacion(int $asignacionId): void
     {
-        $periodo = DB::table('periodo_escolares')->insertGetId(['nombre_periodo' => 'Primer trimestre', 'nivel' => 1, 'anio_lectivo_id' => $this->anio->id]);
+        $periodo = DB::table('periodo_escolares')->insertGetId(['nombre' => 'Primer trimestre', 'nivel' => 1, 'anio_lectivo_id' => $this->anio->id]);
         DB::table('evaluaciones')->insert(['nombre' => 'Examen', 'porcentaje' => 35, 'periodo_escolar_id' => $periodo, 'asignacion_id' => $asignacionId]);
     }
 
     private function conBoleta(int $asignacionId): void
     {
-        $periodo = DB::table('periodo_escolares')->insertGetId(['nombre_periodo' => 'Segundo trimestre', 'nivel' => 2, 'anio_lectivo_id' => $this->anio->id]);
+        $periodo = DB::table('periodo_escolares')->insertGetId(['nombre' => 'Segundo trimestre', 'nivel' => 2, 'anio_lectivo_id' => $this->anio->id]);
         $matricula = $this->matriculaDe($this->estudianteDe($this->encargado, $this->catalogos['distrito']), $this->catalogos, [
             'anio_lectivo_id' => $this->anio->id, 'seccion_id' => $this->seccion->id, 'estado' => 'aprobado',
         ]);
@@ -144,27 +146,27 @@ class AsignacionesTest extends TestCase
     public function test_materia_de_plan_no_vigente_no_se_asigna(): void
     {
         $viejo = $this->plan($this->primero, false, null, 'Plan 2020');
-        $arte = Asignatura::create(['nombre' => 'Arte', 'plan_estudio_id' => $viejo->id]);
+        $arte = PlanAsignatura::enlazar($viejo->id, 'Arte');
 
-        $this->asignar(['asignatura_id' => $arte->id])->assertStatus(422)->assertJsonValidationErrors('asignatura_id');
+        $this->asignar(['plan_asignatura_id' => $arte->id])->assertStatus(422)->assertJsonValidationErrors('plan_asignatura_id');
     }
 
     public function test_d_a1_una_seccion_no_mezcla_planes_de_distintas_especialidades(): void
     {
         $general = $this->plan($this->bachillerato, true, $this->catalogos['especialidad'], 'Bachillerato General');
         $tecnico = $this->plan($this->bachillerato, true, DB::table('especialidades')->insertGetId(['nombre' => 'Técnico']), 'Bachillerato Técnico');
-        $letras = Asignatura::create(['nombre' => 'Letras', 'plan_estudio_id' => $general->id]);
-        $contabilidad = Asignatura::create(['nombre' => 'Contabilidad', 'plan_estudio_id' => $tecnico->id]);
+        $letras = PlanAsignatura::enlazar($general->id, 'Letras');
+        $contabilidad = PlanAsignatura::enlazar($tecnico->id, 'Contabilidad');
         $seccion = $this->seccion($this->bachillerato);
 
-        $this->asignar(['seccion_id' => $seccion->id, 'asignatura_id' => $letras->id])->assertCreated();
-        $this->asignar(['seccion_id' => $seccion->id, 'asignatura_id' => $contabilidad->id, 'profesor_id' => $this->otroDocente->id])
+        $this->asignar(['seccion_id' => $seccion->id, 'plan_asignatura_id' => $letras->id])->assertCreated();
+        $this->asignar(['seccion_id' => $seccion->id, 'plan_asignatura_id' => $contabilidad->id, 'profesor_id' => $this->otroDocente->id])
             ->assertStatus(409)
             ->assertJsonPath('message', 'La sección Primer año de bachillerato A ya usa el plan Bachillerato General: no se pueden mezclar materias de otro plan o especialidad.');
 
         // Otra sección del mismo grado sí puede usar el otro plan
         $seccionB = $this->seccion($this->bachillerato, null, 'B');
-        $this->asignar(['seccion_id' => $seccionB->id, 'asignatura_id' => $contabilidad->id])->assertCreated();
+        $this->asignar(['seccion_id' => $seccionB->id, 'plan_asignatura_id' => $contabilidad->id])->assertCreated();
         $this->assertSame($tecnico->id, app(AsignacionService::class)->planDeSeccion($seccionB->id)->id);
     }
 
@@ -184,34 +186,48 @@ class AsignacionesTest extends TestCase
 
     public function test_d_a2_indice_unico_en_la_base(): void
     {
-        DB::table('asignaciones')->insert(['profesor_id' => $this->docente->id, 'seccion_id' => $this->seccion->id, 'asignatura_id' => $this->matematica->id]);
+        DB::table('asignaciones')->insert(['profesor_id' => $this->docente->id, 'seccion_id' => $this->seccion->id, 'plan_asignatura_id' => $this->matematica->id]);
 
         $this->expectException(QueryException::class);
-        DB::table('asignaciones')->insert(['profesor_id' => $this->otroDocente->id, 'seccion_id' => $this->seccion->id, 'asignatura_id' => $this->matematica->id]);
+        DB::table('asignaciones')->insert(['profesor_id' => $this->otroDocente->id, 'seccion_id' => $this->seccion->id, 'plan_asignatura_id' => $this->matematica->id]);
     }
 
     public function test_migracion_del_indice_se_detiene_si_hay_duplicados_sin_borrar_datos(): void
     {
+        // El índice de 000009 es anterior a plan_asignaturas (000019): se prueba con ese esquema
+        Artisan::call('migrate:rollback', ['--step' => DB::table('migrations')->where('migration', '>=', '2026_10_21_000019')->count()]);
+        $matematica = DB::table('asignaturas')->where('nombre', 'Matemática')->value('id');
+        $duplicadas = fn () => DB::table('asignaciones')->select('seccion_id', 'asignatura_id')
+            ->groupBy('seccion_id', 'asignatura_id')->havingRaw('COUNT(*) > 1')->count();
+
         $migracion = require database_path('migrations/2026_10_13_000009_add_unique_seccion_asignatura_to_asignaciones.php');
         $migracion->down();
         foreach ([$this->docente, $this->otroDocente] as $profesor) {
-            DB::table('asignaciones')->insert(['profesor_id' => $profesor->id, 'seccion_id' => $this->seccion->id, 'asignatura_id' => $this->matematica->id]);
+            DB::table('asignaciones')->insert(['profesor_id' => $profesor->id, 'seccion_id' => $this->seccion->id, 'asignatura_id' => $matematica]);
         }
 
-        $this->assertCount(1, app(AsignacionService::class)->diagnostico()['duplicadas']);
+        $this->assertSame(1, $duplicadas());
         try {
             $migracion->up();
             $this->fail('La migración debió detenerse');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('siga:diagnostico-asignaciones', $e->getMessage());
         }
-        $this->assertSame(2, Asignacion::count());
+        $this->assertSame(2, DB::table('asignaciones')->count());
 
         // Corregido el duplicado, el índice se crea
-        Asignacion::where('profesor_id', $this->otroDocente->id)->delete();
+        DB::table('asignaciones')->where('profesor_id', $this->otroDocente->id)->delete();
         $migracion->up();
-        $this->expectException(QueryException::class);
-        DB::table('asignaciones')->insert(['profesor_id' => $this->otroDocente->id, 'seccion_id' => $this->seccion->id, 'asignatura_id' => $this->matematica->id]);
+        try {
+            DB::table('asignaciones')->insert(['profesor_id' => $this->otroDocente->id, 'seccion_id' => $this->seccion->id, 'asignatura_id' => $matematica]);
+            $this->fail('El índice único debió rechazar la materia repetida');
+        } catch (QueryException $e) {
+            $this->assertSame(1, DB::table('asignaciones')->count());
+        }
+
+        $this->assertSame(0, Artisan::call('migrate'));
+        $materia = PlanAsignatura::with('asignatura')->find(DB::table('asignaciones')->value('plan_asignatura_id'));
+        $this->assertSame([$this->plan->id, 'Matemática'], [$materia->plan_estudio_id, $materia->asignatura->nombre]);
     }
 
     public function test_docente_debe_tener_cuenta_docente(): void
@@ -287,7 +303,7 @@ class AsignacionesTest extends TestCase
     public function test_d_a3_no_se_elimina_con_evaluaciones_o_boletas(): void
     {
         $conEvaluacion = $this->asignar()->json('asignacion.id');
-        $conBoleta = $this->asignar(['asignatura_id' => $this->lenguaje->id])->json('asignacion.id');
+        $conBoleta = $this->asignar(['plan_asignatura_id' => $this->lenguaje->id])->json('asignacion.id');
         $this->conEvaluacion($conEvaluacion);
         $this->conBoleta($conBoleta);
 
@@ -321,7 +337,7 @@ class AsignacionesTest extends TestCase
 
         $this->assertEqualsCanonicalizing(
             ["{$this->seccion->id}-{$this->matematica->id}", "{$seccionB->id}-{$this->lenguaje->id}"],
-            Asignacion::all()->map(fn ($a) => "{$a->seccion_id}-{$a->asignatura_id}")->all()
+            Asignacion::all()->map(fn ($a) => "{$a->seccion_id}-{$a->plan_asignatura_id}")->all()
         );
 
         // Lista vacía: se libera toda la carga del año
@@ -331,7 +347,7 @@ class AsignacionesTest extends TestCase
 
     public function test_carga_es_todo_o_nada(): void
     {
-        $this->asignar(['profesor_id' => $this->otroDocente->id, 'asignatura_id' => $this->lenguaje->id])->assertCreated();
+        $this->asignar(['profesor_id' => $this->otroDocente->id, 'plan_asignatura_id' => $this->lenguaje->id])->assertCreated();
         $this->carga($this->docente, [[$this->seccion, $this->matematica]])->assertOk();
 
         // Lenguaje ya la imparte otro docente: no se guarda nada, ni siquiera lo que sí era válido
@@ -346,7 +362,7 @@ class AsignacionesTest extends TestCase
     public function test_carga_no_quita_materias_con_notas(): void
     {
         $this->carga($this->docente, [[$this->seccion, $this->matematica], [$this->seccion, $this->lenguaje]])->assertOk();
-        $this->conEvaluacion(Asignacion::where('asignatura_id', $this->matematica->id)->value('id'));
+        $this->conEvaluacion(Asignacion::where('plan_asignatura_id', $this->matematica->id)->value('id'));
 
         $this->carga($this->docente, [[$this->seccion, $this->lenguaje]])->assertStatus(409)
             ->assertJsonPath('message', fn ($m) => str_contains($m, 'Puede cambiar el docente'));
@@ -361,7 +377,7 @@ class AsignacionesTest extends TestCase
         $this->como($this->director)->putJson("/api/profesores/{$this->docente->id}/carga", ['anio_lectivo_id' => $this->anio->id])
             ->assertStatus(422)->assertJsonValidationErrors('asignaciones');
         $this->como($this->director)->putJson("/api/profesores/{$this->docente->id}/carga", [
-            'anio_lectivo_id' => $this->anio->id, 'asignaciones' => [['seccion_id' => 999, 'asignatura_id' => $this->matematica->id]],
+            'anio_lectivo_id' => $this->anio->id, 'asignaciones' => [['seccion_id' => 999, 'plan_asignatura_id' => $this->matematica->id]],
         ])->assertStatus(422)->assertJsonValidationErrors('asignaciones.0.seccion_id');
         $this->assertSame(0, Asignacion::count());
     }
@@ -373,7 +389,7 @@ class AsignacionesTest extends TestCase
         // El plan anterior deja de estar vigente y se aprueba uno nuevo para el grado
         $this->plan->update(['estado' => false]);
         $nuevo = $this->plan($this->primero, true, null, 'Plan 2026');
-        $matematicaNueva = Asignatura::create(['nombre' => 'Matemática', 'plan_estudio_id' => $nuevo->id]);
+        $matematicaNueva = PlanAsignatura::enlazar($nuevo->id, 'Matemática');
 
         $this->carga($this->docente, [[$this->seccion, $matematicaNueva]])->assertOk()
             ->assertJsonPath('creadas', 1)->assertJsonPath('eliminadas', 1);
@@ -385,7 +401,7 @@ class AsignacionesTest extends TestCase
     public function test_listado_del_anio_activo_con_filtros(): void
     {
         $this->asignar()->assertCreated();
-        $this->asignar(['asignatura_id' => $this->lenguaje->id, 'profesor_id' => $this->otroDocente->id])->assertCreated();
+        $this->asignar(['plan_asignatura_id' => $this->lenguaje->id, 'profesor_id' => $this->otroDocente->id])->assertCreated();
         $seccion2027 = $this->seccion($this->primero, $this->anio('2027'));
         $this->asignar(['seccion_id' => $seccion2027->id])->assertCreated();
 
@@ -450,7 +466,7 @@ class AsignacionesTest extends TestCase
         $this->anio->forceFill(['estado' => AnioLectivo::INACTIVO])->save();
         $this->carga($this->docente, [[$this->seccion, $this->matematica], [$this->seccion, $this->lenguaje]])->assertOk();
         $this->como($this->director)->postJson('/api/asignaciones', [
-            'profesor_id' => $this->otroDocente->id, 'asignatura_id' => $this->lenguaje->id, 'seccion_id' => $this->seccion->id,
+            'profesor_id' => $this->otroDocente->id, 'plan_asignatura_id' => $this->lenguaje->id, 'seccion_id' => $this->seccion->id,
         ])->assertStatus(409);
         $this->como($this->director)->getJson('/api/asignaciones')->assertOk()
             ->assertJsonPath('anio_lectivo_id', $this->anio->id)->assertJsonCount(2, 'asignaciones');

@@ -40,7 +40,7 @@ class ConductaService
     /** Estudiantes de la sección con su conducta del periodo (o null). */
     public function listar(Seccion $seccion, $periodoId = null): array
     {
-        $periodos = PeriodoEscolar::where('anio_lectivo_id', $seccion->anio_lectivo_id)->orderBy('nivel')->get(['id', 'nombre_periodo', 'nivel', 'anio_lectivo_id']);
+        $periodos = PeriodoEscolar::where('anio_lectivo_id', $seccion->anio_lectivo_id)->orderBy('nivel')->get(['id', 'nombre', 'nivel', 'anio_lectivo_id']);
         $periodo = $periodoId ? $this->periodoDeLaSeccion($seccion, $periodoId) : $periodos->first()?->load('anioLectivo');
 
         $conductas = $periodo

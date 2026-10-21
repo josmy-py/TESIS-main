@@ -98,7 +98,7 @@ class DatosAcademicosPruebaSeederTest extends TestCase
         NotaFinal::query()->delete();
 
         $primero = PeriodoEscolar::where('anio_lectivo_id', AnioLectivo::activo()->id)->orderBy('nivel')->first();
-        app(CalendarioService::class)->cambiarEstadoPeriodo($primero->id, PeriodoEscolar::EN_CURSO);
+        app(CalendarioService::class)->cambiarEstadoPeriodo($primero->id, PeriodoEscolar::ACTIVO);
         app(CalendarioService::class)->cambiarEstadoPeriodo($primero->id, PeriodoEscolar::CERRADO);
 
         $this->seed(DatabaseSeeder::class);

@@ -5,6 +5,7 @@ use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\AnioLectivoController;
 use App\Http\Controllers\AsignacionController;
 use App\Http\Controllers\AsignaturaController;
+use App\Http\Controllers\PlanAsignaturaController;
 use App\Http\Controllers\GradoController;
 use App\Http\Controllers\SeccionController;
 use App\Http\Controllers\DiscapacidadController;
@@ -50,6 +51,8 @@ Route::middleware(['auth:api', 'sesion'])->group(function () {
     // M2.3: plan de estudios y asignaturas (pensum por grado)
     Route::apiResource('plan-estudios', PlanEstudioController::class)->only(['index', 'show']);
     Route::apiResource('asignaturas', AsignaturaController::class)->only(['index', 'show']);
+    // Diagrama ER (21/10/2026): materias de cada plan (plan_asignaturas)
+    Route::apiResource('plan-asignaturas', PlanAsignaturaController::class)->only(['index', 'show']);
 
     // División territorial (M2.1.5): antes era pública; ahora requiere sesión como el resto de catálogos
     Route::get('departamentos', [UbicacionController::class, 'departamentos']);
@@ -117,6 +120,7 @@ Route::middleware(['auth:api', 'sesion', 'role:DIRECTOR'])->group(function () {
     Route::get('matriculas/{id}/secciones', [MatriculaController::class, 'seccionesParaAsignar'])->whereNumber('id');
     Route::apiResource('plan-estudios', PlanEstudioController::class)->only(['store', 'update', 'destroy']);
     Route::apiResource('asignaturas', AsignaturaController::class)->only(['store', 'update', 'destroy']);
+    Route::apiResource('plan-asignaturas', PlanAsignaturaController::class)->only(['store', 'update', 'destroy']);
     Route::apiResource('grados', GradoController::class)->only(['store', 'update', 'destroy']);
     Route::apiResource('especialidades', EspecialidadController::class)->only(['store', 'update', 'destroy']);
     Route::apiResource('discapacidades', DiscapacidadController::class)->only(['store', 'update', 'destroy']);
@@ -143,6 +147,8 @@ Route::middleware(['auth:api', 'sesion', 'role:DIRECTOR'])->group(function () {
     // M12: Generar reportes académicos
     Route::get('reportes/notas', [ReporteController::class, 'notas']);
     Route::get('reportes/conducta', [ReporteController::class, 'conducta']);
+    Route::get('reportes/academico/indicadores', [ReporteController::class, 'academicoIndicadores']);
+    Route::post('reportes/academico/pdf', [ReporteController::class, 'academicoPdf']);
 });
 
 // M4: cada docente consulta su propia carga académica (tesis, págs. 58 y 68)
@@ -164,4 +170,5 @@ Route::middleware(['auth:api', 'sesion', 'role:DOCENTE'])->group(function () {
     // M12 Libreta > Reporte de notas y Reporte de conducta
     Route::get('docente/reportes/notas', [ReporteController::class, 'notas']);
     Route::get('docente/reportes/conducta', [ReporteController::class, 'conducta']);
+    Route::post('docente/reportes/informe-profesor/pdf', [ReporteController::class, 'informeProfesorPdf']);
 });

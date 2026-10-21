@@ -30,7 +30,7 @@ Artisan::command('siga:diagnostico-calendario', function () {
     $secciones = [
         'anios_sin_fechas' => ['Años lectivos sin fechas (no pueden activarse)', ['id', 'anio', 'estado']],
         'anios_sin_periodos' => ['Años lectivos sin periodos (no pueden activarse)', ['id', 'anio', 'estado']],
-        'periodos_sin_anio' => ['Periodos anteriores sin año lectivo o sin número (nivel)', ['id', 'nombre_periodo', 'nivel', 'anio_lectivo_id']],
+        'periodos_sin_anio' => ['Periodos anteriores sin año lectivo o sin número (nivel)', ['id', 'nombre', 'nivel', 'anio_lectivo_id']],
         'secciones_sin_anio' => ['Secciones sin año lectivo', ['id', 'nombre', 'grado_id']],
         'matriculas_sin_anio' => ['Matrículas sin año lectivo', ['id', 'estudiante_id', 'seccion_id']],
         'matriculas_con_otro_anio_que_su_seccion' => ['Matrículas con un año lectivo distinto al de su sección', ['id', 'anio_lectivo_id', 'seccion_id']],
@@ -60,7 +60,7 @@ Artisan::command('siga:diagnostico-calendario', function () {
 // de pensum y de un plan por sección (D-A1). Solo lee; no modifica nada.
 Artisan::command('siga:diagnostico-asignaciones', function () {
     $secciones = [
-        'duplicadas' => ['Misma materia repetida en una sección (impide el índice único)', ['seccion_id', 'asignatura_id', 'total', 'primera_id']],
+        'duplicadas' => ['Misma materia repetida en una sección (impide el índice único)', ['seccion_id', 'plan_asignatura_id', 'total', 'primera_id']],
         'secciones_con_varios_planes' => ['Secciones con materias de más de un plan', ['seccion_id', 'planes']],
     ];
 

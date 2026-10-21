@@ -3,6 +3,7 @@
 namespace Tests\Feature\M6;
 
 use App\Models\AnioLectivo;
+use App\Models\PlanAsignatura;
 use App\Models\Asignacion;
 use App\Models\Asignatura;
 use App\Models\Encargado;
@@ -108,8 +109,8 @@ class MatriculaTest extends TestCase
     /** Asigna una materia del plan a la sección: el plan queda definido (M4). */
     private function asignarPlan(Seccion $seccion, PlanEstudio $plan): void
     {
-        $materia = Asignatura::create(['nombre' => 'Matemática '.$plan->id, 'plan_estudio_id' => $plan->id]);
-        Asignacion::create(['profesor_id' => $this->profesor, 'asignatura_id' => $materia->id, 'seccion_id' => $seccion->id]);
+        $materia = PlanAsignatura::enlazar($plan->id, 'Matemática '.$plan->id);
+        Asignacion::create(['profesor_id' => $this->profesor, 'plan_asignatura_id' => $materia->id, 'seccion_id' => $seccion->id]);
     }
 
     private function hijoDeA(array $atributos = []): Estudiante

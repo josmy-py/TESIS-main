@@ -8,7 +8,7 @@ use Tests\TestCase;
 
 /**
  * La base de datos debe coincidir con el diagrama ER (documentacion\Diagramas
- * de SIGA.svg). Regla de Josmy (13/10/2026): si no viene en el diagrama, no se
+ * de SIGA.png, versión del 21/10/2026). Regla de Josmy (13/10/2026): si no viene en el diagrama, no se
  * toma. No hay columnas ni tablas de negocio fuera de él.
  */
 class DiagramaBaseDatosTest extends TestCase
@@ -33,17 +33,17 @@ class DiagramaBaseDatosTest extends TestCase
         'matriculas' => ['ingreso', 'estudiante_id', 'encargado_id', 'enfermedad_id', 'seccion_id', 'especialidad_id', 'es_trasladado', 'estado', 'foto', 'documento', 'anio_lectivo_id'],
         'especialidades' => ['nombre'],
         'plan_estudios' => ['nombre', 'especialidad_id', 'estado', 'fecha_inicio', 'fecha_fin', 'descripcion', 'fecha_aprobacion'],
-        'asignaturas' => ['nombre', 'plan_estudio_id'],
-        // inicio_matricula y fin_matricula: pedido de Josmy (20/10/2026), fuera del diagrama
+        // Diagrama actualizado por Josmy (21/10/2026): plan_asignaturas une planes y asignaturas
+        'asignaturas' => ['nombre'],
+        'plan_asignaturas' => ['plan_estudio_id', 'asignatura_id'],
         'anios_lectivos' => ['anio', 'fecha_inicio', 'fecha_fin', 'inicio_matricula', 'fin_matricula', 'estado'],
         'secciones' => ['nombre', 'profesor_id', 'grado_id', 'capacidad', 'turno', 'anio_lectivo_id'],
         'grados' => ['nombre'],
         'profesores' => ['nombre', 'fecha_nacimiento', 'codigo', 'telefono', 'dui', 'direccion', 'user_id'],
-        'asignaciones' => ['profesor_id', 'asignatura_id', 'seccion_id'],
+        'asignaciones' => ['profesor_id', 'plan_asignatura_id', 'seccion_id'],
         'calificaciones' => ['nota_obtenida', 'evaluacion_id', 'matricula_id'],
         'evaluaciones' => ['nombre', 'porcentaje', 'periodo_escolar_id', 'asignacion_id'],
-        // estado: excepción pedida por Josmy (19/10/2026) para cerrar cada periodo
-        'periodo_escolares' => ['nombre_periodo', 'nivel', 'anio_lectivo_id', 'estado'],
+        'periodo_escolares' => ['nombre', 'nivel', 'anio_lectivo_id', 'estado'],
         'conductas' => ['matricula_id', 'descripcion', 'valoracion', 'periodo_escolar_id'],
         'boletas' => ['matricula_id', 'asignacion_id', 'periodo_escolar_id', 'promedio'],
         'users' => ['email', 'password', 'rol_id'],
@@ -82,17 +82,17 @@ class DiagramaBaseDatosTest extends TestCase
         'encargados.nombre' => 'varchar(80)', 'encargados.dui' => 'varchar(10)', 'encargados.telefono' => 'varchar(15)', 'encargados.direccion' => 'varchar(100)',
         'especialidades.nombre' => 'varchar(50)',
         'plan_estudios.nombre' => 'varchar(30)', 'plan_estudios.descripcion' => 'varchar(200)',
-        'asignaturas.nombre' => 'varchar(50)', 'anios_lectivos.anio' => 'int',
+        'asignaturas.nombre' => 'varchar(50)', 'anios_lectivos.anio' => 'year',
         'secciones.nombre' => 'varchar(10)', 'grados.nombre' => 'varchar(50)',
         'profesores.nombre' => 'varchar(80)', 'profesores.codigo' => 'varchar(15)', 'profesores.telefono' => 'varchar(15)',
         'profesores.dui' => 'varchar(10)', 'profesores.direccion' => 'varchar(100)',
         'calificaciones.nota_obtenida' => 'decimal(4,2)',
         'evaluaciones.nombre' => 'varchar(50)', 'evaluaciones.porcentaje' => 'decimal(4,2)',
-        'periodo_escolares.nombre_periodo' => 'varchar(50)',
+        'periodo_escolares.nombre' => 'varchar(50)',
         'conductas.descripcion' => 'varchar(100)', 'conductas.valoracion' => 'varchar(20)',
         'boletas.promedio' => 'decimal(4,2)',
         'anios_lectivos.estado' => "enum('activo','inactivo','cierre')",
-        'periodo_escolares.estado' => "enum('pendiente','en_curso','cerrado')",
+        'periodo_escolares.estado' => "enum('pendiente','activo','cerrado')",
         'encargados.parentesco' => "enum('Tío(a)','Abuelo(a)','Hermano(a)','Primo(a)')",
         'parientes.parentesco' => "enum('Padre','Madre')",
     ];

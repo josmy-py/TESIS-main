@@ -3,6 +3,7 @@
 namespace Tests\Feature\M7;
 
 use App\Models\AnioLectivo;
+use App\Models\PlanAsignatura;
 use App\Models\Asignacion;
 use App\Models\Asignatura;
 use App\Models\Calificacion;
@@ -41,7 +42,7 @@ class NotasTest extends TestCase
         $this->sembrarRoles();
         $this->catalogos = $this->catalogosBasicos();
         $this->anio = $this->anio('2026', AnioLectivo::ACTIVO);
-        $this->periodo = PeriodoEscolar::create(['nombre_periodo' => 'Primer trimestre', 'nivel' => 1, 'anio_lectivo_id' => $this->anio->id]);
+        $this->periodo = PeriodoEscolar::create(['nombre' => 'Primer trimestre', 'nivel' => 1, 'anio_lectivo_id' => $this->anio->id]);
         [$this->cuentaDocente, $this->docente] = $this->nuevoDocente();
         [, $otro] = $this->nuevoDocente();
 
@@ -51,10 +52,10 @@ class NotasTest extends TestCase
             'nombre' => 'Plan', 'especialidad_id' => null, 'estado' => true,
             'fecha_inicio' => '2026-01-15', 'fecha_fin' => '2030-11-30', 'fecha_aprobacion' => '2025-12-01', 'descripcion' => 'Pensum',
         ]);
-        $matematica = Asignatura::create(['nombre' => 'Matemática', 'plan_estudio_id' => $plan->id]);
-        $lenguaje = Asignatura::create(['nombre' => 'Lenguaje', 'plan_estudio_id' => $plan->id]);
-        $this->asignacion = Asignacion::create(['profesor_id' => $this->docente->id, 'asignatura_id' => $matematica->id, 'seccion_id' => $this->seccion->id]);
-        $this->ajena = Asignacion::create(['profesor_id' => $otro->id, 'asignatura_id' => $lenguaje->id, 'seccion_id' => $this->seccion->id]);
+        $matematica = PlanAsignatura::enlazar($plan->id, 'Matemática');
+        $lenguaje = PlanAsignatura::enlazar($plan->id, 'Lenguaje');
+        $this->asignacion = Asignacion::create(['profesor_id' => $this->docente->id, 'plan_asignatura_id' => $matematica->id, 'seccion_id' => $this->seccion->id]);
+        $this->ajena = Asignacion::create(['profesor_id' => $otro->id, 'plan_asignatura_id' => $lenguaje->id, 'seccion_id' => $this->seccion->id]);
 
         $encargado = $this->usuario(User::ROL_ENCARGADO);
         foreach (['Zoila Pérez' => 'aprobado', 'Ana López' => 'aprobado', 'Pedro Pendiente' => 'pendiente'] as $nombre => $estado) {
@@ -160,7 +161,7 @@ class NotasTest extends TestCase
     public function test_periodo_de_otro_anio_o_anio_inactivo(): void
     {
         $otroAnio = $this->anio('2027');
-        $ajeno = PeriodoEscolar::create(['nombre_periodo' => 'Primer trimestre', 'nivel' => 1, 'anio_lectivo_id' => $otroAnio->id]);
+        $ajeno = PeriodoEscolar::create(['nombre' => 'Primer trimestre', 'nivel' => 1, 'anio_lectivo_id' => $otroAnio->id]);
         $this->crear(['periodo_escolar_id' => $ajeno->id])->assertStatus(422)->assertJsonValidationErrors('periodo_escolar_id');
 
         $evaluacion = Evaluacion::create(['nombre' => 'Examen', 'porcentaje' => 30, 'periodo_escolar_id' => $this->periodo->id, 'asignacion_id' => $this->asignacion->id]);

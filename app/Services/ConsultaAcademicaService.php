@@ -63,7 +63,7 @@ class ConsultaAcademicaService
     public function obtenerAsignaturas(Matricula $matricula): array
     {
         return [
-            'asignaturas' => Asignacion::with(['asignatura:id,nombre', 'profesor:id,nombre'])
+            'asignaturas' => Asignacion::with(['asignatura', 'profesor:id,nombre'])
                 ->where('seccion_id', $matricula->seccion_id)->get()
                 ->map(fn (Asignacion $a) => ['asignacion_id' => $a->id, 'asignatura' => $a->asignatura?->nombre, 'docente' => $a->profesor?->nombre])
                 ->sortBy(fn ($a) => mb_strtolower((string) $a['asignatura']))->values(),
@@ -73,7 +73,7 @@ class ConsultaAcademicaService
     public function obtenerNotas(Matricula $matricula): array
     {
         $periodos = $this->periodos($matricula);
-        $asignaciones = Asignacion::with(['asignatura:id,nombre', 'profesor:id,nombre'])
+        $asignaciones = Asignacion::with(['asignatura', 'profesor:id,nombre'])
             ->where('seccion_id', $matricula->seccion_id)->get()
             ->sortBy(fn ($a) => mb_strtolower((string) $a->asignatura?->nombre))->values();
         $evaluaciones = Evaluacion::whereIn('asignacion_id', $asignaciones->pluck('id'))->orderBy('id')->get()->groupBy(['asignacion_id', 'periodo_escolar_id']);
@@ -119,7 +119,7 @@ class ConsultaAcademicaService
         $datos = $this->estudiantes->obtener($estudianteId);
         $matriculas = $datos['estudiante']->matriculas;
         $finales = NotaFinal::whereIn('matricula_id', $matriculas->pluck('id'))->get()->keyBy('matricula_id');
-        $conductas = Conducta::with('periodo:id,nombre_periodo,nivel')->whereIn('matricula_id', $matriculas->pluck('id'))->get()->groupBy('matricula_id');
+        $conductas = Conducta::with('periodo:id,nombre,nivel')->whereIn('matricula_id', $matriculas->pluck('id'))->get()->groupBy('matricula_id');
 
         return [
             'estudiante' => $datos['estudiante'],
@@ -127,7 +127,7 @@ class ConsultaAcademicaService
                 'matricula_id' => $m->id,
                 'nota_final' => $finales->get($m->id)?->only(['promedio_anual', 'estado']),
                 'conducta' => ($conductas[$m->id] ?? collect())->sortBy('periodo.nivel')->map(fn ($c) => [
-                    'periodo' => $c->periodo?->nombre_periodo, 'descripcion' => $c->descripcion, 'valoracion' => $c->valoracion,
+                    'periodo' => $c->periodo?->nombre, 'descripcion' => $c->descripcion, 'valoracion' => $c->valoracion,
                 ])->values(),
             ])->values(),
         ];
@@ -164,7 +164,7 @@ class ConsultaAcademicaService
     private function periodos(Matricula $matricula): Collection
     {
         return PeriodoEscolar::where('anio_lectivo_id', $matricula->seccion?->anio_lectivo_id ?? 0)
-            ->orderBy('nivel')->get(['id', 'nombre_periodo', 'nivel']);
+            ->orderBy('nivel')->get(['id', 'nombre', 'nivel']);
     }
 
     private function notaFinal(Matricula $matricula): ?array

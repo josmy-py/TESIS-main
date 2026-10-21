@@ -83,7 +83,7 @@ class SeccionPruebaSeeder extends Seeder
             'fin_matricula' => $fin,
         ]);
         foreach ([1, 2, 3] as $nivel) {
-            $calendario->agregarPeriodo($anio->id, ['nombre_periodo' => CalendarioService::nombrePredeterminado($nivel), 'nivel' => $nivel]);
+            $calendario->agregarPeriodo($anio->id, ['nombre' => CalendarioService::nombrePredeterminado($nivel), 'nivel' => $nivel]);
         }
 
         return $anio->fresh('periodos');

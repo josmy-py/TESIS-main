@@ -3,6 +3,7 @@
 namespace Tests\Feature\M2;
 
 use App\Models\Asignatura;
+use App\Models\PlanAsignatura;
 use App\Models\Grado;
 use App\Models\PlanEstudio;
 use App\Models\User;
@@ -12,7 +13,8 @@ use Tests\Feature\M1\DatosM1;
 use Tests\TestCase;
 
 /**
- * M2.3: plan de estudios con los campos del diagrama y asignaturas únicas por plan.
+ * M2.3: plan de estudios con los campos del diagrama. Diagrama ER (21/10/2026):
+ * catálogo de asignaturas sin repetidos y plan_asignaturas para cada plan.
  */
 class PlanEstudioTest extends TestCase
 {
@@ -51,7 +53,7 @@ class PlanEstudioTest extends TestCase
         return PlanEstudio::findOrFail($id);
     }
 
-    private function asignacionDe(Asignatura $asignatura): void
+    private function asignacionDe(PlanAsignatura $asignatura): void
     {
         $docente = $this->usuario(User::ROL_DOCENTE);
         $profesor = DB::table('profesores')->insertGetId([
@@ -63,7 +65,7 @@ class PlanEstudioTest extends TestCase
             'grado_id' => $this->primero->id, 'profesor_id' => $profesor,
         ]);
         DB::table('asignaciones')->insert([
-            'profesor_id' => $profesor, 'asignatura_id' => $asignatura->id, 'seccion_id' => $seccion,
+            'profesor_id' => $profesor, 'plan_asignatura_id' => $asignatura->id, 'seccion_id' => $seccion,
         ]);
     }
 
@@ -111,10 +113,15 @@ class PlanEstudioTest extends TestCase
             ->assertStatus(422)->assertJsonValidationErrors('nombre');
         $this->como($this->director)->putJson("/api/plan-estudios/{$plan->id}", $this->datosPlan(['descripcion' => 'Cambio']))->assertOk();
 
-        $this->como($this->director)->postJson('/api/asignaturas', ['nombre' => 'Matemática', 'plan_estudio_id' => $plan->id])->assertCreated();
-        $this->como($this->director)->postJson('/api/asignaturas', ['nombre' => ' matematica ', 'plan_estudio_id' => $plan->id])
+        $this->como($this->director)->postJson('/api/plan-asignaturas', ['nombre' => 'Matemática', 'plan_estudio_id' => $plan->id])->assertCreated();
+        $this->como($this->director)->postJson('/api/plan-asignaturas', ['nombre' => ' matematica ', 'plan_estudio_id' => $plan->id])
             ->assertStatus(422)->assertJsonValidationErrors('nombre');
-        $this->como($this->director)->postJson('/api/asignaturas', ['nombre' => 'Matematica', 'plan_estudio_id' => $otro->id])->assertCreated();
+        // En otro plan se reutiliza la misma asignatura del catálogo
+        $this->como($this->director)->postJson('/api/plan-asignaturas', ['nombre' => 'Matematica', 'plan_estudio_id' => $otro->id])
+            ->assertCreated()->assertJsonPath('plan_asignatura.nombre', 'Matemática');
+        $this->assertSame(1, Asignatura::count());
+
+        $this->como($this->director)->postJson('/api/asignaturas', ['nombre' => 'MATEMATICA'])->assertStatus(422)->assertJsonValidationErrors('nombre');
     }
 
     public function test_planes_vigentes_y_no_vigentes(): void
@@ -133,7 +140,7 @@ class PlanEstudioTest extends TestCase
     public function test_plan_con_asignaturas_no_se_elimina(): void
     {
         $plan = $this->crearPlan();
-        $this->como($this->director)->postJson('/api/asignaturas', ['nombre' => 'Lenguaje', 'plan_estudio_id' => $plan->id])->assertCreated();
+        $this->como($this->director)->postJson('/api/plan-asignaturas', ['nombre' => 'Lenguaje', 'plan_estudio_id' => $plan->id])->assertCreated();
 
         $this->como($this->director)->deleteJson("/api/plan-estudios/{$plan->id}")->assertStatus(409);
 
@@ -149,19 +156,22 @@ class PlanEstudioTest extends TestCase
         $plan1 = $this->crearPlan();
         $plan2 = $this->crearPlan(['nombre' => 'Plan Básica 2027']);
 
-        $this->como($this->director)->postJson('/api/asignaturas', ['nombre' => 'Matemática', 'plan_estudio_id' => $plan1->id])->assertCreated();
-        $this->como($this->director)->postJson('/api/asignaturas', ['nombre' => 'Matemática', 'plan_estudio_id' => $plan2->id])->assertCreated();
-        $this->como($this->director)->postJson('/api/asignaturas', ['nombre' => 'Matemática', 'plan_estudio_id' => $plan1->id])
+        $this->como($this->director)->postJson('/api/plan-asignaturas', ['nombre' => 'Matemática', 'plan_estudio_id' => $plan1->id])->assertCreated();
+        $this->como($this->director)->postJson('/api/plan-asignaturas', ['nombre' => 'Matemática', 'plan_estudio_id' => $plan2->id])->assertCreated();
+        $this->como($this->director)->postJson('/api/plan-asignaturas', ['nombre' => 'Matemática', 'plan_estudio_id' => $plan1->id])
             ->assertStatus(422)->assertJsonValidationErrors('nombre');
 
-        $this->assertSame(2, Asignatura::where('nombre', 'Matemática')->count());
+        // Una sola asignatura en el catálogo, enlazada a los dos planes
+        $this->assertSame(1, Asignatura::where('nombre', 'Matemática')->count());
+        $this->assertSame(2, PlanAsignatura::count());
+        $this->como($this->director)->getJson('/api/asignaturas')->assertOk()->assertJsonCount(2, 'asignaturas.0.planes');
     }
 
     public function test_asignatura_exige_plan_valido(): void
     {
-        $this->como($this->director)->postJson('/api/asignaturas', ['nombre' => 'Inglés'])
+        $this->como($this->director)->postJson('/api/plan-asignaturas', ['nombre' => 'Inglés'])
             ->assertStatus(422)->assertJsonValidationErrors('plan_estudio_id');
-        $this->como($this->director)->postJson('/api/asignaturas', ['nombre' => 'Inglés', 'plan_estudio_id' => 999])
+        $this->como($this->director)->postJson('/api/plan-asignaturas', ['nombre' => 'Inglés', 'plan_estudio_id' => 999])
             ->assertStatus(422)->assertJsonValidationErrors('plan_estudio_id');
     }
 
@@ -169,30 +179,39 @@ class PlanEstudioTest extends TestCase
     {
         $vigente = $this->crearPlan();
         $anterior = $this->crearPlan(['nombre' => 'Plan 2020', 'estado' => false]);
-        Asignatura::create(['nombre' => 'Lenguaje', 'plan_estudio_id' => $vigente->id]);
-        Asignatura::create(['nombre' => 'Matemática', 'plan_estudio_id' => $vigente->id]);
-        Asignatura::create(['nombre' => 'Moral', 'plan_estudio_id' => $anterior->id]);
+        PlanAsignatura::enlazar($vigente->id, 'Lenguaje');
+        PlanAsignatura::enlazar($vigente->id, 'Matemática');
+        PlanAsignatura::enlazar($anterior->id, 'Moral');
+        PlanAsignatura::enlazar($anterior->id, 'Lenguaje');
 
         $docente = $this->usuario(User::ROL_DOCENTE);
-        $nombres = $this->como($docente)->getJson("/api/asignaturas?plan_estudio_id={$vigente->id}")->assertOk()
-            ->json('asignaturas.*.nombre');
+        $nombres = $this->como($docente)->getJson("/api/plan-asignaturas?plan_estudio_id={$vigente->id}")->assertOk()
+            ->json('plan_asignaturas.*.nombre');
         $this->assertSame(['Lenguaje', 'Matemática'], $nombres);
+        $this->como($docente)->getJson('/api/plan-asignaturas')->assertOk()->assertJsonCount(4, 'plan_asignaturas');
         $this->como($docente)->getJson('/api/asignaturas')->assertOk()->assertJsonCount(3, 'asignaturas');
     }
 
-    public function test_asignatura_con_asignaciones_no_se_elimina_ni_cambia_de_plan(): void
+    public function test_asignatura_con_asignaciones_no_se_quita_del_plan(): void
     {
         $plan = $this->crearPlan();
         $otro = $this->crearPlan(['nombre' => 'Plan Básica 2027']);
-        $asignatura = Asignatura::create(['nombre' => 'Lenguaje', 'plan_estudio_id' => $plan->id]);
-        $this->asignacionDe($asignatura);
+        $materia = PlanAsignatura::enlazar($plan->id, 'Lenguaje');
+        $enOtro = PlanAsignatura::enlazar($otro->id, 'Lenguaje');
+        $this->asignacionDe($materia);
 
-        $this->como($this->director)->deleteJson("/api/asignaturas/{$asignatura->id}")->assertStatus(409);
-        $this->como($this->director)->putJson("/api/asignaturas/{$asignatura->id}", ['nombre' => 'Lenguaje', 'plan_estudio_id' => $otro->id])
-            ->assertStatus(409);
-        // Corregir el nombre dentro del mismo plan sí se permite
-        $this->como($this->director)->putJson("/api/asignaturas/{$asignatura->id}", ['nombre' => 'Lenguaje y Literatura', 'plan_estudio_id' => $plan->id])
-            ->assertOk()->assertJsonPath('asignatura.nombre', 'Lenguaje y Literatura');
+        $this->como($this->director)->deleteJson("/api/plan-asignaturas/{$materia->id}")->assertStatus(409);
+        $this->como($this->director)->deleteJson("/api/asignaturas/{$materia->asignatura_id}")->assertStatus(409);
+
+        // Renombrar en un plan no cambia la materia del otro plan que la comparte
+        $this->como($this->director)->putJson("/api/plan-asignaturas/{$materia->id}", ['nombre' => 'Lenguaje y Literatura'])
+            ->assertOk()->assertJsonPath('plan_asignatura.nombre', 'Lenguaje y Literatura');
+        $this->assertSame('Lenguaje', $enOtro->fresh()->asignatura->nombre);
+
+        // Sin docentes asignados sí se quita; la asignatura queda mientras otro plan la use
+        $this->como($this->director)->deleteJson("/api/plan-asignaturas/{$enOtro->id}")->assertOk();
+        $this->assertNull(Asignatura::where('nombre', 'Lenguaje')->first());
+        $this->assertNotNull(Asignatura::where('nombre', 'Lenguaje y Literatura')->first());
     }
 
     // --- Permisos ---
@@ -200,15 +219,18 @@ class PlanEstudioTest extends TestCase
     public function test_solo_el_director_modifica_y_todos_con_sesion_consultan(): void
     {
         $plan = $this->crearPlan();
-        $asignatura = Asignatura::create(['nombre' => 'Lenguaje', 'plan_estudio_id' => $plan->id]);
+        $asignatura = PlanAsignatura::enlazar($plan->id, 'Lenguaje');
 
         foreach ([User::ROL_DOCENTE, User::ROL_ENCARGADO] as $rol) {
             $usuario = $this->usuario($rol);
             $this->como($usuario)->getJson('/api/plan-estudios')->assertOk();
-            $this->como($usuario)->getJson("/api/asignaturas/{$asignatura->id}")->assertOk();
+            $this->como($usuario)->getJson("/api/asignaturas/{$asignatura->asignatura_id}")->assertOk();
+            $this->como($usuario)->getJson("/api/plan-asignaturas/{$asignatura->id}")->assertOk();
             $this->como($usuario)->postJson('/api/plan-estudios', $this->datosPlan(['estado' => false]))->assertForbidden();
-            $this->como($usuario)->postJson('/api/asignaturas', ['nombre' => 'X', 'plan_estudio_id' => $plan->id])->assertForbidden();
-            $this->como($usuario)->deleteJson("/api/asignaturas/{$asignatura->id}")->assertForbidden();
+            $this->como($usuario)->postJson('/api/asignaturas', ['nombre' => 'X'])->assertForbidden();
+            $this->como($usuario)->postJson('/api/plan-asignaturas', ['nombre' => 'X', 'plan_estudio_id' => $plan->id])->assertForbidden();
+            $this->como($usuario)->deleteJson("/api/plan-asignaturas/{$asignatura->id}")->assertForbidden();
+            $this->como($usuario)->deleteJson("/api/asignaturas/{$asignatura->asignatura_id}")->assertForbidden();
         }
 
         $this->sinSesion()->getJson('/api/plan-estudios')->assertUnauthorized();

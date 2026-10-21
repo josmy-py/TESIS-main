@@ -30,10 +30,10 @@ class PeriodoEscolarController extends Controller
             PeriodoEscolar::findOrFail($id);
 
             $datos = $request->validate([
-                'nombre_periodo' => 'required|string|max:50',
+                'nombre' => 'required|string|max:50',
             ], [
-                'nombre_periodo.required' => 'El nombre del periodo es obligatorio.',
-                'nombre_periodo.max' => 'El nombre del periodo no debe exceder los 50 caracteres.',
+                'nombre.required' => 'El nombre del periodo es obligatorio.',
+                'nombre.max' => 'El nombre del periodo no debe exceder los 50 caracteres.',
             ]);
 
             return response()->json([
@@ -43,7 +43,7 @@ class PeriodoEscolarController extends Controller
         }, 'Error al actualizar el periodo');
     }
 
-    /** Estado del periodo: pendiente, en_curso o cerrado (cierre de cada trimestre). */
+    /** Estado del periodo: pendiente, activo o cerrado (cierre de cada trimestre). */
     public function estado(Request $request, string $id)
     {
         return $this->responder(function () use ($request, $id) {
@@ -53,12 +53,12 @@ class PeriodoEscolarController extends Controller
                 'estado' => ['required', Rule::in(PeriodoEscolar::ESTADOS)],
             ], [
                 'estado.required' => 'Indique el estado del periodo.',
-                'estado.in' => 'El estado debe ser pendiente, en curso o cerrado.',
+                'estado.in' => 'El estado debe ser pendiente, activo o cerrado.',
             ]);
             $periodo = $this->calendario->cambiarEstadoPeriodo($id, $datos['estado']);
 
             return response()->json([
-                'message' => "{$periodo->nombre_periodo}: ".CalendarioService::textoEstadoPeriodo($periodo->estado),
+                'message' => "{$periodo->nombre}: ".CalendarioService::textoEstadoPeriodo($periodo->estado),
                 'periodo' => $periodo,
             ]);
         }, 'Error al cambiar el estado del periodo');

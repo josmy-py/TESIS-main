@@ -69,7 +69,7 @@ class ConductaTest extends TestCase
             ->assertStatus(422)->assertJsonValidationErrors('conductas');
 
         $otroAnio = AnioLectivo::create(['anio' => '2027', 'fecha_inicio' => '2027-01-15', 'fecha_fin' => '2027-11-30']);
-        $ajeno = PeriodoEscolar::create(['nombre_periodo' => 'P', 'nivel' => 1, 'anio_lectivo_id' => $otroAnio->id]);
+        $ajeno = PeriodoEscolar::create(['nombre' => 'P', 'nivel' => 1, 'anio_lectivo_id' => $otroAnio->id]);
         $this->guardar([['matricula_id' => $ana, 'descripcion' => 'X', 'valoracion' => 'Bueno']], null, $ajeno)
             ->assertStatus(422)->assertJsonValidationErrors('periodo_escolar_id');
 

@@ -152,14 +152,15 @@ class DatosAcademicosPruebaSeeder extends Seeder
                 continue;
             }
             foreach ($plan->asignaturas()->whereIn('nombre', AsignacionPruebaSeeder::PENSUM[$nombreGrado])->get() as $asignatura) {
-                if (Asignacion::where('seccion_id', $seccion->id)->where('asignatura_id', $asignatura->id)->exists()) {
+                $planAsignaturaId = $asignatura->pivot->id;
+                if (Asignacion::where('seccion_id', $seccion->id)->where('plan_asignatura_id', $planAsignaturaId)->exists()) {
                     continue;
                 }
                 try {
                     $servicioAsignaciones->crear([
                         'profesor_id' => $docente->id,
                         'seccion_id' => $seccion->id,
-                        'asignatura_id' => $asignatura->id,
+                        'plan_asignatura_id' => $planAsignaturaId,
                     ]);
                 } catch (ValidationException|\DomainException $e) {
                     $this->command?->warn("No se asignó {$asignatura->nombre} en {$nombreGrado} A: ".($e instanceof ValidationException ? collect($e->errors())->flatten()->implode(' ') : $e->getMessage()));

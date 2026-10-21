@@ -9,16 +9,16 @@ class PeriodoEscolar extends Model
     protected $table = 'periodo_escolares';
 
     // estado (pedido de Josmy, 19/10/2026): pendiente al crearse; el director lo
-    // pone en curso y lo cierra al terminar el trimestre o periodo
+    // activa (diagrama: activo) y lo cierra al terminar el trimestre o periodo
     public const PENDIENTE = 'pendiente';
-    public const EN_CURSO = 'en_curso';
+    public const ACTIVO = 'activo';
     public const CERRADO = 'cerrado';
-    public const ESTADOS = [self::PENDIENTE, self::EN_CURSO, self::CERRADO];
+    public const ESTADOS = [self::PENDIENTE, self::ACTIVO, self::CERRADO];
 
-    // Columnas del diagrama: nombre_periodo y nivel (más el año lectivo al que
+    // Columnas del diagrama: nombre y nivel (más el año lectivo al que
     // pertenece y el estado). El estado solo cambia con CalendarioService
     protected $fillable = [
-        'nombre_periodo',
+        'nombre',
         'nivel',
         'anio_lectivo_id',
     ];
@@ -73,7 +73,7 @@ class PeriodoEscolar extends Model
     public function motivoBloqueo(string $accion): string
     {
         return $this->estado === self::CERRADO
-            ? "El periodo {$this->nombre_periodo} está cerrado: {$accion}."
+            ? "El periodo {$this->nombre} está cerrado: {$accion}."
             : "El año lectivo de este periodo no está activo: {$accion}.";
     }
 }
