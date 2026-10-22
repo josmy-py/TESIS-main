@@ -93,7 +93,7 @@ class MatriculaController extends Controller
             // encargado; se informa junto con los demás errores del formulario
             $validador->after(function ($v) use ($request, $propietarioId) {
                 try {
-                    $this->validarPropiedad($request->input('estudiante_id'), $request->input('encargado_id'), $propietarioId);
+                    $this->validarPropiedad($request->input('estudiante_id'), $request->input('encargado_id'), $propietarioId, $request->input('ingreso') === 'Reingreso');
                 } catch (ValidationException $e) {
                     foreach ($e->errors() as $campo => $mensajes) {
                         $v->errors()->add($campo, $mensajes[0]);
@@ -237,7 +237,7 @@ class MatriculaController extends Controller
             $estudiante = $this->matriculaService->buscarPorNie($request->nie, $this->propietarioId());
 
             if (! $estudiante) {
-                return response()->json(['message' => 'El estudiante no pertenece a la institución.'], 404);
+                return response()->json(['message' => 'No hay un estudiante registrado en la institución con ese NIE. Si nunca ha estudiado aquí, matricúlelo como Nuevo ingreso.'], 404);
             }
 
             return response()->json(['estudiante' => $estudiante]);
@@ -341,14 +341,16 @@ class MatriculaController extends Controller
     }
 
     /**
-     * Para el ENCARGADO: el estudiante debe ser suyo y el encargado_id debe
-     * ser su propio perfil. Se responde como error de validación del campo.
+     * Para el ENCARGADO: el estudiante debe ser suyo (o, en Reingreso, uno de
+     * otra cuenta ya matriculado antes) y el encargado_id debe ser su propio perfil. Se responde como error de validación del campo.
      */
-    private function validarPropiedad($estudianteId, $encargadoId, ?int $propietarioId): void
+    private function validarPropiedad($estudianteId, $encargadoId, ?int $propietarioId, bool $reingreso = false): void
     {
         $errores = [];
+        // En Reingreso también vale el estudiante de otra cuenta encontrado por su NIE (pasa a esta cuenta al aprobarse)
+        $otro = $reingreso && $estudianteId !== null && ($e = \App\Models\Estudiante::find($estudianteId)) && $this->matriculaService->reclamable($e);
 
-        if ($estudianteId !== null && ! $this->matriculaService->estudiantes($propietarioId)->whereKey($estudianteId)->exists()) {
+        if ($estudianteId !== null && ! $otro && ! $this->matriculaService->estudiantes($propietarioId)->whereKey($estudianteId)->exists()) {
             $errores['estudiante_id'] = ['El estudiante seleccionado no es válido.'];
         }
 

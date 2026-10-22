@@ -59,7 +59,7 @@ class ReporteDocenteTest extends TestCase
         foreach (['CÓDIGO DE INFRAESTRUCTURA: 1689', 'REPORTE DEL PERSONAL DOCENTE', 'Directora de prueba', 'direccion@siga.test', 'Primer trimestre',
             '12/06/2026', '<td>Total de Docentes</td><td>3</td>', '<td>Docentes Activos</td><td>2</td>', '96%', '9.2', 'Desempeño satisfactorio.',
             'Metodologías activas.', '<li>Docente destacado</li>', '<li>Innovación pedagógica</li>', 'Sin novedades.',
-            'Directora Institucional', 'Sello Institucional'] as $texto) {
+            'Director(a) del Complejo Educativo Hacienda Colima Cantón el Tule', 'Sello Institucional'] as $texto) {
             $this->assertStringContainsString($texto, $html);
         }
     }

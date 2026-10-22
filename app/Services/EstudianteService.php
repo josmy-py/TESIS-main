@@ -25,6 +25,8 @@ class EstudianteService
 {
     public const DUPLICADO = 'El estudiante ya está registrado; contacte a la dirección.';
 
+    public const YA_REGISTRADO = 'El estudiante ya está registrado en la institución: no se registra de nuevo, matricúlelo por Antiguo ingreso buscando su NIE.';
+
     /** Filtros: q (nombre o NIE), estado, con_matricula_aprobada y user_id (solo director). */
     public function listar(array $filtros = [], ?int $propietarioId = null)
     {
@@ -48,6 +50,8 @@ class EstudianteService
             ])
             ->when(! $propietarioId, fn ($q) => $q->with('user:id,email'))
             ->withCount(['padres', 'matriculas'])
+            // Registrado en la institución (con matrícula aprobada): solo se matricula por Reingreso
+            ->withExists(['matriculas as registrado' => fn ($m) => $m->where('estado', 'aprobado')])
             ->orderBy('nombre')
             ->get();
     }
@@ -84,7 +88,8 @@ class EstudianteService
     public function crear(array $data): Estudiante
     {
         if ($this->registroDuplicado($data)) {
-            throw new \DomainException(self::DUPLICADO);
+            // Ya pertenece a la institución: no se registra de nuevo, se matricula por Reingreso (ajuste de Josmy)
+            throw new \DomainException($this->duplicadoRegistrado($data) ? self::YA_REGISTRADO : self::DUPLICADO);
         }
 
         return Estudiante::create([
@@ -191,6 +196,17 @@ class EstudianteService
             ->where('fecha_nacimiento', $data['fecha_nacimiento'])
             ->where('genero', $data['genero'])
             ->where('distrito_id', $data['distrito_id'])
+            ->exists();
+    }
+
+    /** El registro repetido es de un estudiante con matrícula aprobada (ya pertenece a la institución). */
+    private function duplicadoRegistrado(array $data): bool
+    {
+        return Estudiante::query()
+            ->when(! empty($data['nie']), fn ($q) => $q->where('nie', $data['nie']), fn ($q) => $q
+                ->where('nombre', $data['nombre'])->where('fecha_nacimiento', $data['fecha_nacimiento'])
+                ->where('genero', $data['genero'])->where('distrito_id', $data['distrito_id']))
+            ->whereHas('matriculas', fn ($m) => $m->where('estado', 'aprobado'))
             ->exists();
     }
 

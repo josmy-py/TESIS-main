@@ -43,5 +43,12 @@
 
     <h2>OBSERVACIONES</h2>
     <p>{!! $observaciones !== '' ? nl2br(e($observaciones)) : '—' !!}</p>
+
+    <table style="width: 100%; margin-top: 55px; border-collapse: collapse;">
+        <tr>
+            <td style="width: 50%; vertical-align: top;">@include('firma_persona', ['nombreFirma' => $profesor, 'cargoFirma' => 'Profesor(a)'])</td>
+            <td style="width: 50%; vertical-align: top;">@include('firma_director', ['margen' => 0, 'corta' => true])</td>
+        </tr>
+    </table>
 </body>
 </html>

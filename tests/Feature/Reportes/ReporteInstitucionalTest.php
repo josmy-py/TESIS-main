@@ -76,7 +76,7 @@ class ReporteInstitucionalTest extends TestCase
         $this->assertNull($vista['medidas_aplicadas']);
         $html = view('admin.institucional', $vista)->render();
         foreach (['REPÚBLICA DE EL SALVADOR', 'INFORME INSTITUCIONAL', 'Educación Básica', 'Primer trimestre', '12/06/2026', 'María Fernanda López', 'direccion@siga.test',
-            'CONDUCTA Y DISCIPLINA', '<li>Acto Cívico</li>', 'Feria del libro.', 'RECURSOS HUMANOS', 'Clima favorable.', 'Directora Institucional', 'Sello Institucional'] as $texto) {
+            'CONDUCTA Y DISCIPLINA', '<li>Acto Cívico</li>', 'Feria del libro.', 'RECURSOS HUMANOS', 'Clima favorable.', 'Director(a) del Complejo Educativo Hacienda Colima Cantón el Tule', 'Sello Institucional'] as $texto) {
             $this->assertStringContainsString($texto, $html);
         }
 

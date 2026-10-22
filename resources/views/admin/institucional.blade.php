@@ -19,9 +19,6 @@
         p { text-align: justify; line-height: 1.5; margin: 6px 0 0; }
         ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.6; }
         .final { page-break-inside: avoid; }
-        .firmas { width: 100%; margin-top: 50px; border-collapse: collapse; }
-        .firmas td { width: 50%; text-align: center; font-size: 10.5px; }
-        .linea { display: inline-block; width: 150px; border-top: 1px solid #374151; margin-bottom: 6px; }
     </style>
 </head>
 <body>
@@ -97,12 +94,7 @@
         <h2>OBSERVACIONES GENERALES</h2>
         <p>{!! $observaciones !== '' ? $texto($observaciones) : '—' !!}</p>
 
-        <table class="firmas">
-            <tr>
-                <td><span class="linea"></span><br>{{ $cargo }} Institucional</td>
-                <td><span class="linea"></span><br>Sello Institucional</td>
-            </tr>
-        </table>
+        @include('firma_director', ['nombreDirector' => $nombre, 'margen' => 45])
     </div>
 </body>
 </html>

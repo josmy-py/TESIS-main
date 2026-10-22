@@ -153,6 +153,11 @@ class EstudiantesFamiliaTest extends TestCase
         $respuesta = $this->como($this->b)->postJson('/api/estudiantes', $this->datosEstudiante())->assertStatus(409);
         $respuesta->assertJsonPath('message', 'El estudiante ya está registrado; contacte a la dirección.');
         $this->assertStringNotContainsString($this->a->email, $respuesta->getContent());
+
+        // Si ya pertenece a la institución (matrícula aprobada) no se registra de nuevo: va por Antiguo ingreso
+        $this->matriculaDe(Estudiante::where('nombre', 'Luis Pérez')->first(), $this->catalogos, ['estado' => 'aprobado']);
+        $this->como($this->b)->postJson('/api/estudiantes', $this->datosEstudiante())->assertStatus(409)
+            ->assertJsonPath('message', 'El estudiante ya está registrado en la institución: no se registra de nuevo, matricúlelo por Antiguo ingreso buscando su NIE.');
     }
 
     public function test_eliminar_solo_sin_matriculas(): void

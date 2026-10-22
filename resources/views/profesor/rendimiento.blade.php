@@ -18,9 +18,6 @@
         .tabla td.prom { font-weight: bold; }
         .nota { font-size: 8.5px; color: #6b7280; margin: 6px 0 0; }
         p.texto { font-size: 11px; text-align: justify; line-height: 1.6; margin: 0; }
-        .firmas { width: 100%; margin-top: 60px; border-collapse: collapse; }
-        .firmas td { width: 50%; text-align: center; font-size: 11px; }
-        .linea { display: inline-block; width: 160px; border-top: 1px solid #374151; margin-bottom: 6px; }
     </style>
 </head>
 <body>
@@ -70,10 +67,10 @@
     <h2>OBSERVACIONES</h2>
     <p class="texto">{!! $observaciones !== '' ? nl2br(e($observaciones)) : '—' !!}</p>
 
-    <table class="firmas">
+    <table style="width: 100%; margin-top: 55px; border-collapse: collapse;">
         <tr>
-            <td><span class="linea"></span><br>Docente</td>
-            <td><span class="linea"></span><br>Director(a)</td>
+            <td style="width: 50%; vertical-align: top;">@include('firma_persona', ['nombreFirma' => $profesor, 'cargoFirma' => 'Docente'])</td>
+            <td style="width: 50%; vertical-align: top;">@include('firma_director', ['margen' => 0, 'corta' => true])</td>
         </tr>
     </table>
 </body>

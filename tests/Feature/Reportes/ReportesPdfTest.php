@@ -28,6 +28,17 @@ class ReportesPdfTest extends TestCase
         $this->assertStringContainsString('data:image/png;base64,', $html);
     }
 
+    public function test_firma_del_director(): void
+    {
+        // Sin nombre: el director actual; con nombre (formularios del director): ese nombre
+        foreach ([[[], 'Lic. Rolando Alexander Hernandez Peñate'], [['nombreDirector' => ' '], 'Lic. Rolando Alexander Hernandez Peñate'], [['nombreDirector' => 'Juan Pérez'], 'Juan Pérez']] as [$datos, $nombre]) {
+            $html = view('firma_director', $datos)->render();
+            foreach (['F. ___', $nombre, 'Director(a) del Complejo Educativo Hacienda Colima Cantón el Tule', 'Sello Institucional'] as $texto) {
+                $this->assertStringContainsString($texto, $html);
+            }
+        }
+    }
+
     public function test_reporte_desconocido(): void
     {
         $this->expectException(InvalidArgumentException::class);

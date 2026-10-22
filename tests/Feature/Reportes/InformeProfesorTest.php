@@ -52,7 +52,9 @@ class InformeProfesorTest extends TestCase
         $html = view('profesor.informe_profesor', app(ReportesProfesorPdfService::class)->datosInforme($this->cuentaDocente, $this->datos()))->render();
         foreach (['COMPLEJO EDUCATIVO HACIENDA COLIMA', 'INFORME DE PROFESOR', 'Primer grado', 'Primer trimestre', 'Prof. Gonzales',
             '08/06/2026', 'ASUNTO', 'Rendimiento del grupo en el primer trimestre.', 'DESARROLLO DEL INFORME',
-            'El grupo mostró avances.<br />', 'OBSERVACIONES'] as $texto) {
+            'El grupo mostró avances.<br />', 'OBSERVACIONES',
+            // Firmas del profesor y del director
+            'Profesor(a)', 'Lic. Rolando Alexander Hernandez Peñate', 'Director(a) del Complejo Educativo Hacienda Colima Cantón el Tule', 'Sello Institucional'] as $texto) {
             $this->assertStringContainsString($texto, $html);
         }
     }

@@ -389,6 +389,70 @@ class MatriculaTest extends TestCase
         $this->como($this->b)->getJson("/api/matriculas/estudiantes/{$nuevo->id}/opciones")->assertNotFound();
     }
 
+    public function test_reingreso_por_nie_desde_otra_cuenta_cambia_el_responsable(): void
+    {
+        // Estudiante de la cuenta A (su padre es el responsable) con Primer grado aprobado en 2026
+        $estudiante = $this->hijoDeA(['nie' => '7654321', 'direccion' => 'Cantón El Tule']);
+        $this->historial($estudiante, $this->primero, 'Aprobada');
+        $sinHistorial = $this->hijoDeA(['nie' => '7654322']);
+
+        // La cuenta B lo busca solo por el NIE y la ficha se llena sola
+        $this->como($this->b)->postJson('/api/matriculas/buscar-nie', ['nie' => '7654321'])->assertOk()
+            ->assertJsonPath('estudiante.id', $estudiante->id)->assertJsonPath('estudiante.direccion', 'Cantón El Tule')
+            ->assertJsonPath('estudiante.genero', $estudiante->genero)->assertJsonPath('estudiante.propio', false)
+            ->assertJsonPath('estudiante.distrito', \App\Models\Distrito::find($this->catalogos['distrito'])->nombre);
+        // Sin matrícula aprobada no está registrado en la institución: no es Reingreso, nadie lo encuentra por NIE
+        $this->como($this->b)->postJson('/api/matriculas/buscar-nie', ['nie' => '7654322'])->assertNotFound()
+            ->assertJsonPath('message', 'No hay un estudiante registrado en la institución con ese NIE. Si nunca ha estudiado aquí, matricúlelo como Nuevo ingreso.');
+        $this->como($this->a)->postJson('/api/matriculas/buscar-nie', ['nie' => '7654322'])->assertNotFound();
+        // Y uno registrado no se matricula como Nuevo ingreso
+        $this->solicitar($estudiante, [], $this->a)->assertStatus(422)->assertJsonValidationErrors('ingreso');
+        $this->solicitar($sinHistorial, ['ingreso' => 'Reingreso'], $this->b)->assertStatus(422)->assertJsonValidationErrors('estudiante_id');
+        // La misma cuenta lo sigue encontrando como propio
+        $this->como($this->a)->postJson('/api/matriculas/buscar-nie', ['nie' => '7654321'])->assertOk()->assertJsonPath('estudiante.propio', true);
+
+        // B no es padre ni madre del estudiante: debe registrar su encargado
+        $this->como($this->b)->getJson("/api/matriculas/estudiantes/{$estudiante->id}/opciones")->assertOk()
+            ->assertJsonPath('otra_cuenta', true)->assertJsonPath('ingreso', 'Reingreso')->assertJsonPath('responsable.tipo', null);
+        $this->solicitar($estudiante, ['ingreso' => 'Reingreso', 'documento' => null], $this->b)->assertStatus(422)->assertJsonValidationErrors('encargado_id');
+        $perfil = $this->como($this->b)->postJson('/api/encargados', ['nombre' => 'Abuela B', 'parentesco' => 'Abuelo(a)', 'telefono' => '7000-0002',
+            'dui' => \Database\Factories\UserFactory::duiValido(), 'direccion' => 'Calle 3'])->assertCreated()->json('encargado');
+
+        $this->solicitar($estudiante, ['ingreso' => 'Reingreso', 'documento' => null, 'nie' => '1111111'], $this->b)->assertStatus(422)->assertJsonValidationErrors('nie');
+        $id = $this->solicitar($estudiante, ['ingreso' => 'Reingreso', 'documento' => null], $this->b)->assertCreated()
+            ->assertJsonPath('matricula.encargado_id', $perfil['id'])->json('matricula.id');
+        // Hasta que se apruebe el estudiante sigue en la cuenta A; B ve su solicitud y A no puede cancelarla
+        $this->assertSame($this->a->id, $estudiante->fresh()->user_id);
+        $this->como($this->b)->getJson('/api/matriculas')->assertOk()->assertJsonPath('matriculas.0.id', $id);
+        $this->como($this->a)->deleteJson("/api/matriculas/{$id}")->assertStatus(409);
+        $this->como($this->director)->getJson("/api/matriculas/{$id}")->assertJsonPath('responsable.tipo', 'encargado')
+            ->assertJsonPath('responsable.nombre', 'Abuela B');
+
+        // Al aprobarse, el estudiante pasa a la cuenta B: es la nueva responsable
+        $this->aprobar($id, ['seccion_id' => $this->segundoA->id])->assertOk();
+        $this->assertSame($this->b->id, $estudiante->fresh()->user_id);
+        $this->como($this->b)->getJson("/api/matriculas/estudiantes/{$estudiante->id}/opciones")->assertOk()
+            ->assertJsonPath('otra_cuenta', false)->assertJsonPath('responsable.id', $perfil['id']);
+        $this->assertNotContains($estudiante->id, $this->como($this->a)->getJson('/api/estudiantes')->assertOk()->json('estudiantes.*.id'));
+    }
+
+    public function test_reingreso_por_otro_padre_con_cuenta_lo_resuelve_la_direccion(): void
+    {
+        $estudiante = $this->hijoDeA(['nie' => '7654323']);
+        $this->historial($estudiante, $this->primero, 'Aprobada');
+        // La madre tiene otra cuenta y está vinculada, pero el padre (cuenta A) ya es responsable
+        $c = $this->usuario(User::ROL_ENCARGADO);
+        $madre = Padre::create(['nombre' => 'Madre C', 'dui' => '00000005-9', 'user_id' => $c->id]);
+        $estudiante->padres()->attach($madre->id, ['parentesco' => 'Madre']);
+
+        $this->solicitar($estudiante, ['ingreso' => 'Reingreso', 'documento' => null], $c)->assertStatus(422)
+            ->assertJsonPath('errors.encargado_id.0', 'El estudiante ya tiene como responsable a otro padre o madre con cuenta: para cambiarlo, contacte a la dirección.');
+        // La cuenta A, que matriculó el año anterior, sigue siendo la responsable
+        $id = $this->solicitar($estudiante, ['ingreso' => 'Reingreso', 'documento' => null])->assertCreated()->json('matricula.id');
+        $this->aprobar($id, ['seccion_id' => $this->segundoA->id])->assertOk();
+        $this->assertSame($this->a->id, $estudiante->fresh()->user_id);
+    }
+
     public function test_reingreso_conserva_la_especialidad_y_no_salta_grados(): void
     {
         $contador = DB::table('especialidades')->insertGetId(['nombre' => 'Contador']);

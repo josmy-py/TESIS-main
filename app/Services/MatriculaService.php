@@ -63,18 +63,78 @@ class MatriculaService
             ->when($propietarioId, fn ($q) => $q->where('user_id', $propietarioId));
     }
 
+    /**
+     * Matrículas que ve la cuenta ENCARGADO: las de sus estudiantes y las que
+     * pidió como responsable (su encargado o su registro de padre o madre),
+     * aunque el estudiante aún sea de otra cuenta (reingreso por cuenta nueva).
+     */
     public function matriculas(?int $propietarioId = null)
     {
         return Matricula::query()
-            ->when($propietarioId, fn ($q) => $q->whereHas(
-                'estudiante',
-                fn ($e) => $e->where('user_id', $propietarioId)
-            ));
+            ->when($propietarioId, fn ($q) => $q->where(fn ($w) => $w
+                ->whereHas('estudiante', fn ($e) => $e->where('user_id', $propietarioId))
+                ->orWhereHas('encargado', fn ($e) => $e->where('user_id', $propietarioId))
+                ->orWhere(fn ($p) => $p->where('estado', 'pendiente')->whereNull('encargado_id')
+                    ->whereHas('estudiante.padres', fn ($e) => $e->where('padres.user_id', $propietarioId)))));
     }
 
     public function estudiantePropio($estudianteId, ?int $propietarioId = null): Estudiante
     {
         return $this->estudiantes($propietarioId)->findOrFail($estudianteId);
+    }
+
+    /**
+     * Ajuste de Josmy (22/10/2026): la cuenta del responsable vale para el año
+     * lectivo de la matrícula. En Reingreso, otra cuenta encuentra al
+     * estudiante por su NIE y lo matricula; si la dirección aprueba, el
+     * estudiante pasa a esa cuenta y ella es la nueva responsable. Solo si ya
+     * tiene una matrícula aprobada (Reingreso) y ninguna vigente en el año.
+     */
+    public function estudianteParaReingreso($estudianteId, ?int $propietarioId = null, bool $bloquear = false): Estudiante
+    {
+        $consulta = Estudiante::query()->when($bloquear, fn ($q) => $q->lockForUpdate());
+        if (! $propietarioId) {
+            return $consulta->findOrFail($estudianteId);
+        }
+        $estudiante = $consulta->findOrFail($estudianteId);
+        if ((int) $estudiante->user_id !== $propietarioId && ! $this->reclamable($estudiante)) {
+            throw (new \Illuminate\Database\Eloquent\ModelNotFoundException)->setModel(Estudiante::class, [$estudianteId]);
+        }
+
+        return $estudiante;
+    }
+
+    /** Otra cuenta solo puede reingresar a un estudiante con matrícula aprobada y el NIE registrado. */
+    public function reclamable(Estudiante $estudiante): bool
+    {
+        return $estudiante->nie !== null
+            && Matricula::where('estudiante_id', $estudiante->id)->where('estado', 'aprobado')->exists();
+    }
+
+    /**
+     * Cuenta que pidió la matrícula (la responsable de ese año): la de su
+     * encargado o, si no tiene, la del padre o la madre vinculado con cuenta
+     * (primero la cuenta actual del estudiante).
+     */
+    public function cuentaSolicitante(Matricula $matricula): ?int
+    {
+        if ($matricula->encargado_id) {
+            return Encargado::whereKey($matricula->encargado_id)->value('user_id');
+        }
+        $estudiante = $matricula->estudiante ?? Estudiante::find($matricula->estudiante_id);
+        $cuentas = $estudiante?->padres()->whereNotNull('padres.user_id')->pluck('padres.user_id')->map(fn ($id) => (int) $id) ?? collect();
+
+        $propia = $estudiante?->user_id ? (int) $estudiante->user_id : null;
+
+        return $cuentas->contains($propia) ? $propia : ($cuentas->first() ?? $propia);
+    }
+
+    /** La cuenta ENCARGADO solo edita o cancela las solicitudes que ella pidió. */
+    private function exigirSolicitante(Matricula $matricula, ?int $propietarioId): void
+    {
+        if ($propietarioId && $this->cuentaSolicitante($matricula) !== $propietarioId) {
+            throw new \DomainException('Esta solicitud la hizo otra cuenta: solo ella o la dirección pueden modificarla.');
+        }
     }
 
     // El encargado de una matrícula pedida por una cuenta ENCARGADO debe ser su propio perfil
@@ -152,7 +212,10 @@ class MatriculaService
 
         try {
             return DB::transaction(function () use ($datos, $foto, $documento, $cuenta, $propietarioId, $anio, &$guardados) {
-                $estudiante = $this->estudiantes($propietarioId)->lockForUpdate()->findOrFail($datos['estudiante_id']);
+                $estudiante = $datos['ingreso'] === 'Reingreso'
+                    ? $this->estudianteParaReingreso($datos['estudiante_id'], $propietarioId, true)
+                    : $this->estudiantes($propietarioId)->lockForUpdate()->findOrFail($datos['estudiante_id']);
+                $ajeno = $propietarioId && (int) $estudiante->user_id !== $propietarioId;
                 // La sección la indica la dirección. El encargado indica grado y turno: queda
                 // una sección de ese grado y turno con cupo, que la dirección confirma o cambia al aprobar
                 $seccion = ! empty($datos['seccion_id']) ? $this->seccionDelAnio($datos['seccion_id'], $anio) : null;
@@ -168,10 +231,17 @@ class MatriculaService
                     }
                 }
                 $encargadoId = $this->validarResponsable($estudiante, $datos['encargado_id'] ?? null, $propietarioId);
+                if ($ajeno && ! $encargadoId && $this->padreDeLaCuenta($estudiante, $estudiante->user_id)) {
+                    // Los dos son padres con cuenta: no se sabría quién pidió la matrícula
+                    throw ValidationException::withMessages(['encargado_id' => 'El estudiante ya tiene como responsable a otro padre o madre con cuenta: para cambiarlo, contacte a la dirección.']);
+                }
                 if ($seccion) {
                     $this->validarCupo($seccion);
                 }
-                if (array_key_exists('nie', $datos)) {
+                if ($ajeno && array_key_exists('nie', $datos) && $datos['nie'] !== (string) $estudiante->nie) {
+                    throw ValidationException::withMessages(['nie' => 'El NIE no coincide con el del estudiante encontrado.']);
+                }
+                if (array_key_exists('nie', $datos) && ! $ajeno) {
                     $this->guardarNie($estudiante, $datos['nie'], $propietarioId);
                 }
 
@@ -194,7 +264,7 @@ class MatriculaService
                 ]);
                 $matricula->discapacidades()->sync($datos['discapacidades'] ?? []);
 
-                $this->bitacora('matricula_solicitada', $cuenta, $matricula);
+                $this->bitacora('matricula_solicitada', $cuenta, $matricula, $ajeno ? ['cuenta_anterior' => $estudiante->user_id] : []);
 
                 return $matricula->fresh(['discapacidades:id,nombre']);
             });
@@ -217,6 +287,7 @@ class MatriculaService
         try {
             $matricula = DB::transaction(function () use ($id, $datos, $foto, $documento, $cuenta, $propietarioId, &$guardados, &$anteriores) {
                 $matricula = $this->matriculas($propietarioId)->lockForUpdate()->findOrFail($id);
+                $this->exigirSolicitante($matricula, $propietarioId);
                 if ($matricula->estado !== 'pendiente') {
                     throw new \DomainException('Solo se puede editar una matrícula pendiente.'.($matricula->estado === 'aprobado' ? ' La dirección puede cambiar la sección de una matrícula aprobada.' : ''));
                 }
@@ -245,7 +316,7 @@ class MatriculaService
                 }
 
                 if (array_key_exists('encargado_id', $datos)) {
-                    $cambios['encargado_id'] = $this->validarResponsable($estudiante, $datos['encargado_id'], $propietarioId);
+                    $cambios['encargado_id'] = $this->validarResponsable($estudiante, $datos['encargado_id'], $propietarioId ?? $this->cuentaSolicitante($matricula));
                 }
                 if (array_key_exists('nie', $datos)) {
                     $this->guardarNie($estudiante, $datos['nie'], $propietarioId);
@@ -287,6 +358,7 @@ class MatriculaService
     {
         $archivos = DB::transaction(function () use ($id, $cuenta, $propietarioId) {
             $matricula = $this->matriculas($propietarioId)->lockForUpdate()->findOrFail($id);
+            $this->exigirSolicitante($matricula, $propietarioId);
             if ($matricula->estado !== 'pendiente') {
                 throw new \DomainException('Solo se puede cancelar una matrícula pendiente. Las aprobadas y rechazadas se conservan como historial.');
             }
@@ -327,7 +399,8 @@ class MatriculaService
             $this->sinOtraVigente($estudiante, $anio, $matricula->id);
             $especialidad = $this->validarGradoYPlan($estudiante, $anio, $seccion, $matricula->ingreso, PromocionService::id($matricula->especialidad_id));
             $this->delGradoYTurnoPedidos($matricula, $seccion);
-            $this->validarResponsable($estudiante, $matricula->encargado_id, null);
+            $solicitante = $this->cuentaSolicitante($matricula);
+            $this->validarResponsable($estudiante, $matricula->encargado_id, $solicitante);
             $this->validarCupo($seccion, $matricula->id, true);
 
             // NIE (ajuste de Josmy): si el estudiante no lo tiene (Nuevo ingreso sin traslado), lo registra la dirección al aprobar
@@ -338,9 +411,12 @@ class MatriculaService
             }
 
             $matricula->update(['seccion_id' => $seccion->id, 'especialidad_id' => $especialidad, 'estado' => 'aprobado']);
-            $estudiante->update(['estado' => 'activo']);
+            // La cuenta que matriculó es la responsable del año: si es otra, el estudiante pasa a ella
+            $anterior = $estudiante->user_id;
+            $estudiante->update(['estado' => 'activo'] + ($solicitante && $solicitante !== (int) $anterior ? ['user_id' => $solicitante] : []));
 
-            $this->bitacora('matricula_aprobada', $director, $matricula, ['seccion_id' => $seccion->id]);
+            $this->bitacora('matricula_aprobada', $director, $matricula, ['seccion_id' => $seccion->id]
+                + ($solicitante && $solicitante !== (int) $anterior ? ['responsable_anterior' => $anterior, 'responsable_nuevo' => $solicitante] : []));
 
             return $matricula;
         });
@@ -382,7 +458,7 @@ class MatriculaService
     /** Lo que puede matricular el estudiante en el año (para el formulario del encargado). */
     public function opciones($estudianteId, $anioLectivoId = null, ?int $propietarioId = null): array
     {
-        $estudiante = $this->estudiantePropio($estudianteId, $propietarioId);
+        $estudiante = $this->estudianteParaReingreso($estudianteId, $propietarioId);
         $anio = $this->calendario()->anioParaMatricula($anioLectivoId);
         $opciones = $this->promocion->opciones($estudiante, $anio);
         $vigente = Matricula::where('estudiante_id', $estudiante->id)->where('anio_lectivo_id', $anio->id)->whereIn('estado', self::VIGENTES)->first(['id', 'estado']);
@@ -403,7 +479,9 @@ class MatriculaService
             'mensaje' => $vigente ? "Ya tiene una matrícula {$vigente->estado} en {$anio->anio}." : ($fueraDePeriodo ?? $opciones['mensaje']),
             'permitido' => ! $vigente && ! $opciones['bloqueo'] && ! $fueraDePeriodo,
             'nie' => $estudiante->nie,
-            'responsable' => $this->responsablePara($estudiante),
+            'responsable' => $this->responsablePara($estudiante, $propietarioId),
+            // Otra cuenta lo reingresa: al aprobarse, el estudiante pasa a ella
+            'otra_cuenta' => $propietarioId !== null && (int) $estudiante->user_id !== $propietarioId,
         ];
     }
 
@@ -418,15 +496,20 @@ class MatriculaService
             ->sortBy(fn ($t) => $t === 'matutino' ? 0 : 1)->values()->all();
     }
 
+    /**
+     * Reingreso (ajuste de Josmy, 22/10/2026): la cuenta busca al estudiante
+     * solo por su NIE y la ficha se llena sola, también si es de otra cuenta.
+     * Solo se encuentra si ya está registrado en la institución (matrícula
+     * aprobada); si no, corresponde Nuevo ingreso.
+     */
     public function buscarPorNie($nie, ?int $propietarioId = null)
     {
-        $estudiante = $this->estudiantes($propietarioId)->with([
-            'matriculas.especialidad',
-        ])
+        $estudiante = Estudiante::with(['matriculas.especialidad', 'distrito.municipio.departamento'])
             ->where('nie', $nie)
             ->first();
 
-        if (! $estudiante) {
+        // Solo los registrados en la institución (con matrícula aprobada) se reingresan; los demás son Nuevo ingreso
+        if (! $estudiante || ! $this->reclamable($estudiante)) {
             return null;
         }
 
@@ -438,7 +521,14 @@ class MatriculaService
             'id' => $estudiante->id,
             'nombre' => $estudiante->nombre,
             'nie' => $estudiante->nie,
+            'fecha_nacimiento' => $estudiante->fecha_nacimiento,
+            'genero' => $estudiante->genero,
+            'direccion' => $estudiante->direccion,
+            'distrito' => $estudiante->distrito?->nombre,
+            'municipio' => $estudiante->distrito?->municipio?->nombre,
+            'departamento' => $estudiante->distrito?->municipio?->departamento?->nombre,
             'especialidad' => $ultimaMatricula?->especialidad?->nombre,
+            'propio' => ! $propietarioId || (int) $estudiante->user_id === $propietarioId,
         ];
     }
 
@@ -601,7 +691,7 @@ class MatriculaService
             return $e ? ['tipo' => 'encargado', 'id' => $e->id, 'nombre' => $e->nombre, 'dui' => $e->dui, 'telefono' => $e->telefono, 'parentesco' => $e->parentesco] : null;
         }
 
-        $padre = $this->padreDeLaCuenta($matricula->estudiante ?? Estudiante::find($matricula->estudiante_id));
+        $padre = $this->padreDeLaCuenta($matricula->estudiante ?? Estudiante::find($matricula->estudiante_id), $this->cuentaSolicitante($matricula));
 
         return $padre ? ['tipo' => 'padre', 'id' => $padre->id, 'nombre' => $padre->nombre, 'dui' => $padre->dui, 'telefono' => $padre->telefono, 'parentesco' => $padre->pivot->parentesco] : null;
     }
@@ -784,9 +874,11 @@ class MatriculaService
      * - si no, es obligatorio su perfil en `encargados` con el user_id de la
      *   cuenta, y se usa ese perfil aunque no se envíe encargado_id.
      */
-    private function validarResponsable(Estudiante $estudiante, $encargadoId, ?int $propietarioId): ?int
+    private function validarResponsable(Estudiante $estudiante, $encargadoId, ?int $cuentaId): ?int
     {
-        if ($this->padreDeLaCuenta($estudiante)) {
+        // La responsable es la cuenta que matricula (en Reingreso puede ser otra que la del estudiante)
+        $cuentaId ??= $estudiante->user_id;
+        if ($this->padreDeLaCuenta($estudiante, $cuentaId)) {
             if ($encargadoId) {
                 throw ValidationException::withMessages(['encargado_id' => 'El padre o la madre titular de la cuenta es el responsable del estudiante: no se registra un encargado adicional.']);
             }
@@ -794,7 +886,7 @@ class MatriculaService
             return null;
         }
 
-        $perfil = $estudiante->user_id ? Encargado::where('user_id', $estudiante->user_id)->first() : null;
+        $perfil = $cuentaId ? Encargado::where('user_id', $cuentaId)->first() : null;
         if (! $perfil) {
             throw ValidationException::withMessages(['encargado_id' => 'Falta el responsable: ninguno de los padres registrados es el responsable del estudiante, así que debe registrar al encargado (pestaña Encargado) antes de matricular.']);
         }
@@ -806,13 +898,14 @@ class MatriculaService
     }
 
     /** Responsable que tendría la matrícula del estudiante (para el formulario). */
-    public function responsablePara(Estudiante $estudiante): array
+    public function responsablePara(Estudiante $estudiante, ?int $cuentaId = null): array
     {
-        if ($padre = $this->padreDeLaCuenta($estudiante)) {
+        $cuentaId ??= $estudiante->user_id;
+        if ($padre = $this->padreDeLaCuenta($estudiante, $cuentaId)) {
             return ['tipo' => 'padre', 'id' => $padre->id, 'nombre' => $padre->nombre, 'dui' => $padre->dui, 'parentesco' => $padre->pivot->parentesco,
                 'telefono' => $padre->telefono, 'direccion' => null, 'falta' => null];
         }
-        if ($perfil = $estudiante->user_id ? Encargado::where('user_id', $estudiante->user_id)->first() : null) {
+        if ($perfil = $cuentaId ? Encargado::where('user_id', $cuentaId)->first() : null) {
             return ['tipo' => 'encargado', 'id' => $perfil->id, 'nombre' => $perfil->nombre, 'dui' => $perfil->dui, 'parentesco' => $perfil->parentesco,
                 'telefono' => $perfil->telefono, 'direccion' => $perfil->direccion, 'falta' => null];
         }
@@ -821,13 +914,14 @@ class MatriculaService
             'falta' => 'Ninguno de los padres registrados es el responsable del estudiante: registre al encargado en la pestaña Encargado antes de matricular.'];
     }
 
-    private function padreDeLaCuenta(?Estudiante $estudiante): ?Padre
+    private function padreDeLaCuenta(?Estudiante $estudiante, ?int $cuentaId = null): ?Padre
     {
-        if (! $estudiante?->user_id) {
+        $cuentaId ??= $estudiante?->user_id;
+        if (! $estudiante || ! $cuentaId) {
             return null;
         }
 
-        return $estudiante->padres()->where('padres.user_id', $estudiante->user_id)->first();
+        return $estudiante->padres()->where('padres.user_id', $cuentaId)->first();
     }
 
     /**

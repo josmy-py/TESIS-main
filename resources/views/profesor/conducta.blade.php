@@ -19,9 +19,6 @@
         .acciones { width: 100%; border-collapse: collapse; }
         .acciones td { padding: 3px 0; font-size: 10.5px; color: #374151; vertical-align: top; }
         .acciones td.check { width: 18px; color: #9ca3af; font-size: 11px; }
-        .firmas { width: 100%; margin-top: 55px; border-collapse: collapse; }
-        .firmas td { width: 33%; text-align: center; font-size: 10px; color: #1f2937; }
-        .linea { display: inline-block; width: 140px; border-top: 1px solid #374151; margin-bottom: 6px; }
     </style>
 </head>
 <body>
@@ -62,12 +59,12 @@
     <h2>COMPROMISOS DE MEJORA</h2>
     <p>{!! nl2br(e($compromiso_mejora)) !!}</p>
 
-    <table class="firmas">
+    <table style="width: 100%; margin-top: 50px; border-collapse: collapse;">
         <tr>
-            <td><span class="linea"></span><br>Docente Responsable</td>
-            <td><span class="linea"></span><br>Padre / Madre o Responsable</td>
-            <td><span class="linea"></span><br>Director(a)</td>
+            <td style="width: 50%; vertical-align: top;">@include('firma_persona', ['nombreFirma' => $profesor, 'cargoFirma' => 'Docente Responsable'])</td>
+            <td style="width: 50%; vertical-align: top;">@include('firma_persona', ['nombreFirma' => '', 'cargoFirma' => 'Padre / Madre o Responsable'])</td>
         </tr>
     </table>
+    @include('firma_director', ['margen' => 40])
 </body>
 </html>

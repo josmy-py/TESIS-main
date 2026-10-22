@@ -74,7 +74,11 @@ class PropiedadDatosTest extends TestCase
             ->assertOk();
 
         $this->como($this->a)->postJson('/api/matriculas/buscar-nie', ['nie' => '2222222'])->assertNotFound();
+        // Búsqueda por NIE (Reingreso): solo estudiantes ya registrados en la institución (matrícula aprobada)
+        $this->como($this->a)->postJson('/api/matriculas/buscar-nie', ['nie' => '1111111'])->assertNotFound();
+        DB::table('matriculas')->where('id', $matA)->update(['estado' => 'aprobado']);
         $this->como($this->a)->postJson('/api/matriculas/buscar-nie', ['nie' => '1111111'])->assertOk();
+        DB::table('matriculas')->where('id', $matA)->update(['estado' => 'pendiente']);
         $this->como($this->a)->getJson("/api/matriculas/estudiantes/{$deB->id}/padres")->assertNotFound();
         $this->como($this->a)->getJson('/api/matriculas/estudiantes-inscritos')->assertJsonCount(1, 'estudiantes');
         $this->como($this->a)->postJson("/api/matriculas/validar-grado/{$deB->id}/1", ['ingreso' => 'Nuevo ingreso'])->assertNotFound();

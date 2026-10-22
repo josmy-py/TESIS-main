@@ -23,11 +23,6 @@
         .notas .nota { width: 22%; text-align: center; }
         .notas tr.promedio td { background: #f3f4f6; color: #111827; }
         p.obs { text-align: justify; line-height: 1.5; margin: 0; }
-        .firma { margin-top: 60px; text-align: center; font-size: 10.5px; }
-        .firma .linea { color: #0b2c5a; font-size: 11px; }
-        .firma .nombre { color: #0b2c5a; font-weight: bold; font-size: 11px; margin-top: 6px; }
-        .firma .cargo { margin-top: 4px; }
-        .firma .sello { color: #4b5563; font-weight: bold; font-size: 9.5px; margin-top: 4px; }
     </style>
 </head>
 <body>
@@ -81,11 +76,6 @@
         <p class="obs">{!! nl2br(e($observaciones)) !!}</p>
     @endif
 
-    <div class="firma">
-        <div class="linea">F. ______________________________________</div>
-        <div class="nombre">Lic. Rolando Alexander Hernandez Peñate</div>
-        <div class="cargo">Director(a) del Complejo Educativo Hacienda Colima Cantón el Tule</div>
-        <div class="sello">Sello Institucional</div>
-    </div>
+    @include('firma_director', ['margen' => 60])
 </body>
 </html>

@@ -75,7 +75,7 @@ class ReporteAcademicoTest extends TestCase
         $html = view('admin.academico', app(ReportesAdminPdfService::class)->datosReporteAcademico($datos))->render();
         foreach (['REPÚBLICA DE EL SALVADOR', 'CÓDIGO DE INFRAESTRUCTURA: 1689', 'INFORME ACADÉMICO INSTITUCIONAL', 'Educación Básica', 'Primer trimestre', '12/06/2026', 'Directora de prueba',
             'direccion@siga.test', '7.38', '50%', 'Matemática', '<li>Ana López - Primer grado</li>', '<li>Más lectura</li>',
-            'Directora Institucional', 'Sello Institucional'] as $texto) {
+            'Director(a) del Complejo Educativo Hacienda Colima Cantón el Tule', 'Sello Institucional'] as $texto) {
             $this->assertStringContainsString($texto, $html);
         }
 
