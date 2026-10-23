@@ -39,6 +39,9 @@
             <td><b>Profesor:</b> {{ $profesor }}</td>
             <td><b>Fecha:</b> {{ $fecha_formateada }}</td>
         </tr>
+        <tr>
+            <td colspan="2"><b>Año lectivo:</b> {{ $anio }}</td>
+        </tr>
     </table>
 
     <h2>RESUMEN ACADÉMICO</h2>

@@ -32,21 +32,15 @@ class ConductaController extends Controller
     public function guardar(Request $request, string $seccionId)
     {
         return $this->responder(function () use ($request, $seccionId) {
-            $request->merge(['conductas' => collect($request->input('conductas', []))->map(fn ($f) => is_array($f) ? array_merge($f, [
-                'descripcion' => is_string($f['descripcion'] ?? null) ? trim($f['descripcion']) : ($f['descripcion'] ?? null),
-            ]) : $f)->all()]);
             $datos = $request->validate([
                 'periodo_escolar_id' => 'required|integer',
                 'conductas' => 'required|array|min:1',
                 'conductas.*.matricula_id' => 'required|integer|distinct',
-                'conductas.*.descripcion' => 'required|string|max:100',
                 'conductas.*.valoracion' => ['required', Rule::in(ConductaService::VALORACIONES)],
             ], [
                 'periodo_escolar_id.required' => 'Indique el periodo.',
                 'conductas.required' => 'No hay conducta para guardar.',
                 'conductas.*.matricula_id.distinct' => 'Un estudiante aparece dos veces.',
-                'conductas.*.descripcion.required' => 'Escriba la observación.',
-                'conductas.*.descripcion.max' => 'La observación no debe exceder los 100 caracteres.',
                 'conductas.*.valoracion.required' => 'Seleccione la valoración.',
                 'conductas.*.valoracion.in' => 'La valoración debe ser '.implode(', ', ConductaService::VALORACIONES).'.',
             ]);

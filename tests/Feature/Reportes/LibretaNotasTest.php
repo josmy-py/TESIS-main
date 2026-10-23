@@ -3,7 +3,9 @@
 namespace Tests\Feature\Reportes;
 
 use App\Models\Boleta;
+use App\Models\AnioLectivo;
 use App\Models\Grado;
+use App\Models\PeriodoEscolar;
 use App\Models\Seccion;
 use App\Models\User;
 use App\Services\Profesor\ReportesProfesorPdfService;
@@ -14,7 +16,8 @@ use Tests\TestCase;
 /**
  * Libreta de notas de un estudiante (portal docente): materias y promedios de
  * las boletas del período (el guía ve todas las materias, los demás docentes solo
- * las suyas) y PDF con dompdf.
+ * las suyas) y PDF con dompdf. Solo con el período cerrado y una sección del año
+ * lectivo activo (pedido de Josmy del 23/10/2026).
  */
 class LibretaNotasTest extends TestCase
 {
@@ -28,6 +31,7 @@ class LibretaNotasTest extends TestCase
         $this->prepararSeccion();
         $this->travelTo(now()->parse('2026-06-12 15:00:00', 'UTC'));
         $periodo = $this->periodos[0]->id;
+        $this->periodos[0]->forceFill(['estado' => PeriodoEscolar::CERRADO])->save();
         Boleta::create(['promedio' => 8.3, 'matricula_id' => $this->matriculas['Ana López'], 'asignacion_id' => $this->matematica->id, 'periodo_escolar_id' => $periodo]);
         Boleta::create(['promedio' => 9, 'matricula_id' => $this->matriculas['Ana López'], 'asignacion_id' => $this->lenguaje->id, 'periodo_escolar_id' => $periodo]);
     }
@@ -37,7 +41,7 @@ class LibretaNotasTest extends TestCase
         return array_merge([
             'grado_id' => $this->seccion->grado_id, 'seccion_id' => $this->seccion->id,
             'periodo_escolar_id' => $this->periodos[0]->id, 'matricula_id' => $this->matriculas['Ana López'],
-            'conducta' => 'Excelente', 'conducta_descripcion' => 'Respeta las normas institucionales.', 'observaciones' => '',
+            'conducta' => 'Excelente', 'observaciones' => '',
         ], $cambios);
     }
 
@@ -54,7 +58,7 @@ class LibretaNotasTest extends TestCase
 
         $html = $this->html($this->cuentaDocente);
         foreach (['COMPLEJO EDUCATIVO HACIENDA COLIMA', 'REPORTE DE LIBRETA DE NOTAS', '12/06/2026', 'Primer trimestre', 'Primer grado',
-            'Docente 1', 'Ana López', 'Excelente', 'Respeta las normas institucionales.', 'DETALLE DE CALIFICACIONES',
+            'Docente 1', 'Año lectivo:</b> <span class="valor">2026</span>', 'Ana López', 'Excelente', 'DETALLE DE CALIFICACIONES',
             '<td>Matemática</td><td class="nota">8.3</td>', '<td>Lenguaje</td><td class="nota">9.0</td>',
             '<td>Promedio general</td><td class="nota">8.65</td>', 'Sello Institucional'] as $texto) {
             $this->assertStringContainsString($texto, $html);
@@ -94,6 +98,24 @@ class LibretaNotasTest extends TestCase
 
         $this->como($this->cuentaDocente)->postJson(self::URL, $this->datos(['periodo_escolar_id' => 999]))
             ->assertStatus(422)->assertJsonValidationErrors('periodo_escolar_id');
+    }
+
+    public function test_solo_con_el_periodo_cerrado(): void
+    {
+        foreach ([PeriodoEscolar::PENDIENTE, PeriodoEscolar::ACTIVO] as $estado) {
+            $this->periodos[0]->forceFill(['estado' => $estado])->save();
+            $this->como($this->cuentaDocente)->postJson(self::URL, $this->datos())
+                ->assertStatus(422)->assertJsonValidationErrors(['periodo_escolar_id' => 'solo se genera cuando el período está cerrado']);
+        }
+    }
+
+    public function test_solo_secciones_del_anio_activo(): void
+    {
+        $this->anio->forceFill(['estado' => AnioLectivo::CIERRE])->save();
+        $this->como($this->cuentaDocente)->postJson(self::URL, $this->datos())
+            ->assertStatus(422)->assertJsonValidationErrors(['seccion_id' => 'año lectivo activo']);
+        $this->como($this->cuentaDocente)->getJson('/api/docente/reportes/notas?seccion_id='.$this->seccion->id.'&periodo_escolar_id='.$this->periodos[0]->id)
+            ->assertStatus(422)->assertJsonValidationErrors('seccion_id');
     }
 
     public function test_solo_docentes(): void

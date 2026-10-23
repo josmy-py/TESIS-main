@@ -191,7 +191,7 @@ class AsignacionService
 
         if (! $profesor || ! $anio) {
             return [
-                'profesor' => $profesor?->only(['id', 'codigo', 'nombre']),
+                'profesor' => ($profesor ? $this->datosProfesor($profesor) : null),
                 'anio_lectivo' => $anio?->only(['id', 'anio', 'estado']),
                 'asignaciones' => [],
                 'secciones' => [],
@@ -212,7 +212,7 @@ class AsignacionService
         ])->values();
 
         return [
-            'profesor' => $profesor->only(['id', 'codigo', 'nombre']),
+            'profesor' => $this->datosProfesor($profesor),
             'anio_lectivo' => $anio->only(['id', 'anio', 'estado']),
             'asignaciones' => $asignaciones,
             'secciones' => $secciones,
@@ -255,6 +255,13 @@ class AsignacionService
     }
 
     // Año activo; si no hay, el inactivo más reciente (el que se está preparando)
+    /** Datos del docente para su perfil (solo lectura; los administra el director). */
+    private function datosProfesor(Profesor $profesor): array
+    {
+        return $profesor->only(['id', 'codigo', 'nombre', 'dui', 'telefono', 'direccion'])
+            + ['fecha_nacimiento' => $profesor->fecha_nacimiento?->format('Y-m-d')];
+    }
+
     private function anioPredeterminado(): ?AnioLectivo
     {
         return AnioLectivo::activo()

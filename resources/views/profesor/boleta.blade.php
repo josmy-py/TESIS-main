@@ -45,7 +45,8 @@
             <td><b>Sección:</b> <span class="valor">{{ $seccion }}</span></td>
         </tr>
         <tr>
-            <td colspan="2"><b>Profesor:</b> <span class="valor">{{ $profesor ?? '—' }}</span></td>
+            <td><b>Profesor:</b> <span class="valor">{{ $profesor ?? '—' }}</span></td>
+            <td><b>Año lectivo:</b> <span class="valor">{{ $anio }}</span></td>
         </tr>
     </table>
 
@@ -57,9 +58,6 @@
     <div class="caja conducta">
         <h3>CONDUCTA DEL ESTUDIANTE</h3>
         <div><b>Conducta:</b> <span class="valor">{{ $conducta !== '' ? $conducta : '—' }}</span></div>
-        @if ($conducta_descripcion !== '')
-            <p>{{ $conducta_descripcion }}</p>
-        @endif
     </div>
 
     <h2>DETALLE DE CALIFICACIONES</h2>

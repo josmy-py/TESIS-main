@@ -420,6 +420,11 @@ class AsignacionesTest extends TestCase
 
         $this->como($this->docente->user)->getJson('/api/docente/carga')->assertOk()
             ->assertJsonPath('profesor.codigo', $this->docente->codigo)
+            // Datos del perfil del docente (solo lectura)
+            ->assertJsonPath('profesor.dui', $this->docente->dui)
+            ->assertJsonPath('profesor.telefono', $this->docente->telefono)
+            ->assertJsonPath('profesor.direccion', 'X')
+            ->assertJsonPath('profesor.fecha_nacimiento', '1990-01-01')
             ->assertJsonPath('anio_lectivo.anio', 2026)
             ->assertJsonCount(2, 'asignaciones')
             ->assertJsonCount(1, 'secciones')

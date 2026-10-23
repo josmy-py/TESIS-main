@@ -31,7 +31,7 @@
         <table class="datos">
             <tr>
                 <td><b>Nombre:</b> {{ $estudiante }}</td>
-                <td><b>Período:</b> {{ $periodo }}@if ($anio) ({{ $anio }})@endif</td>
+                <td><b>Período:</b> {{ $periodo }}</td>
             </tr>
             <tr>
                 <td><b>Fecha:</b> {{ $fecha_formateada }}</td>
@@ -40,6 +40,9 @@
             <tr>
                 <td><b>Grado:</b> {{ $grado }}</td>
                 <td><b>Sección:</b> {{ $seccion }}</td>
+            </tr>
+            <tr>
+                <td colspan="2"><b>Año lectivo:</b> {{ $anio }}</td>
             </tr>
         </table>
     </div>
@@ -55,9 +58,6 @@
             <tr><td class="check">☑</td><td>{{ $accion }}</td></tr>
         @endforeach
     </table>
-
-    <h2>COMPROMISOS DE MEJORA</h2>
-    <p>{!! nl2br(e($compromiso_mejora)) !!}</p>
 
     <table style="width: 100%; margin-top: 50px; border-collapse: collapse;">
         <tr>

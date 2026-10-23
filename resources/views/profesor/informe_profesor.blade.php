@@ -31,7 +31,7 @@
         </tr>
         <tr>
             <td><b>Período:</b> <span class="valor">{{ $periodo }}</span></td>
-            <td></td>
+            <td><b>Año lectivo:</b> <span class="valor">{{ $anio }}</span></td>
         </tr>
     </table>
 

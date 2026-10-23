@@ -95,7 +95,6 @@ class ReporteController extends Controller
                 'periodo_escolar_id' => 'required|integer',
                 'matricula_id' => 'required|integer',
                 'conducta' => 'nullable|string|max:255',
-                'conducta_descripcion' => 'nullable|string|max:255',
                 'observaciones' => 'nullable|string|max:500',
             ], [
                 'grado_id.required' => 'Seleccione el grado.',
@@ -253,7 +252,6 @@ class ReporteController extends Controller
                 'conducta' => 'required|string|max:80',
                 'descripcion_hechos' => 'required|string|max:1000',
                 'acciones_tomadas' => 'required|string|max:500',
-                'compromiso_mejora' => 'required|string|max:1000',
             ], [
                 'grado_id.required' => 'Seleccione el grado.',
                 'seccion_id.required' => 'Seleccione la sección.',
@@ -263,7 +261,6 @@ class ReporteController extends Controller
                 'descripcion_hechos.required' => 'Describa los hechos.',
                 'acciones_tomadas.required' => 'Indique las acciones tomadas.',
                 'acciones_tomadas.max' => 'Las acciones tomadas no pueden pasar de 500 caracteres.',
-                'compromiso_mejora.required' => 'Escriba el compromiso de mejora.',
             ]);
 
             return $this->pdfProfesor->generarConducta($request->user(), $datos)->stream('reporte_conducta.pdf');

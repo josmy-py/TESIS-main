@@ -51,7 +51,7 @@ class InformeProfesorTest extends TestCase
 
         $html = view('profesor.informe_profesor', app(ReportesProfesorPdfService::class)->datosInforme($this->cuentaDocente, $this->datos()))->render();
         foreach (['COMPLEJO EDUCATIVO HACIENDA COLIMA', 'INFORME DE PROFESOR', 'Primer grado', 'Primer trimestre', 'Prof. Gonzales',
-            '08/06/2026', 'ASUNTO', 'Rendimiento del grupo en el primer trimestre.', 'DESARROLLO DEL INFORME',
+            '08/06/2026', 'Año lectivo:</b> <span class="valor">2026</span>', 'ASUNTO', 'Rendimiento del grupo en el primer trimestre.', 'DESARROLLO DEL INFORME',
             'El grupo mostró avances.<br />', 'OBSERVACIONES',
             // Firmas del profesor y del director
             'Profesor(a)', 'Lic. Rolando Alexander Hernandez Peñate', 'Director(a) del Complejo Educativo Hacienda Colima Cantón el Tule', 'Sello Institucional'] as $texto) {
@@ -79,6 +79,11 @@ class InformeProfesorTest extends TestCase
 
         $this->como($this->cuentaDocente)->postJson(self::URL, $this->datos(['asunto' => '', 'profesor' => '']))
             ->assertStatus(422)->assertJsonValidationErrors(['asunto', 'profesor']);
+
+        // Solo secciones del año lectivo activo
+        $this->anio->forceFill(['estado' => AnioLectivo::INACTIVO])->save();
+        $this->como($this->cuentaDocente)->postJson(self::URL, $this->datos())
+            ->assertStatus(422)->assertJsonValidationErrors(['seccion_id' => 'año lectivo activo']);
     }
 
     public function test_solo_docentes(): void

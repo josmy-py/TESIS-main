@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Reportes;
 
+use App\Models\AnioLectivo;
 use App\Models\Grado;
 use App\Models\Seccion;
 use App\Models\User;
@@ -34,7 +35,6 @@ class ReporteConductaTest extends TestCase
             'matricula_id' => $this->matriculas['Ana López'], 'conducta' => 'Regular',
             'descripcion_hechos' => 'Interrupciones ocasionales en clase.',
             'acciones_tomadas' => "Llamado de atención verbal.\n\n  Comunicación con el responsable.  ",
-            'compromiso_mejora' => 'Mantener una actitud respetuosa.',
         ], $cambios);
     }
 
@@ -47,12 +47,13 @@ class ReporteConductaTest extends TestCase
 
         $html = view('profesor.conducta', app(ReportesProfesorPdfService::class)->datosConducta($this->cuentaOtroDocente, $this->datos()))->render();
         foreach (['COMPLEJO EDUCATIVO HACIENDA COLIMA', 'REPORTE DE CONDUCTA', 'Ana López', '10/06/2026', 'Docente 2', 'Primer grado',
-            'Primer trimestre (2026)', 'TIPO DE CONDUCTA: <span>Regular</span>', 'Interrupciones ocasionales en clase.',
-            '<td>Llamado de atención verbal.</td>', '<td>Comunicación con el responsable.</td>', 'Mantener una actitud respetuosa.',
+            '<b>Período:</b> Primer trimestre</td>', '<b>Año lectivo:</b> 2026', 'TIPO DE CONDUCTA: <span>Regular</span>', 'Interrupciones ocasionales en clase.',
+            '<td>Llamado de atención verbal.</td>', '<td>Comunicación con el responsable.</td>',
             'Docente Responsable', 'Padre / Madre o Responsable', 'Director(a)'] as $texto) {
             $this->assertStringContainsString($texto, $html);
         }
         $this->assertSame(2, substr_count($html, '☑'));
+        $this->assertStringNotContainsString('COMPROMISOS DE MEJORA', $html);
     }
 
     public function test_validaciones(): void
@@ -72,6 +73,11 @@ class ReporteConductaTest extends TestCase
             ->assertStatus(422)->assertJsonValidationErrors('periodo_escolar_id');
         $this->como($this->cuentaDocente)->postJson(self::URL, $this->datos(['conducta' => '', 'acciones_tomadas' => str_repeat('a', 501)]))
             ->assertStatus(422)->assertJsonValidationErrors(['conducta', 'acciones_tomadas']);
+
+        // Solo secciones del año lectivo activo
+        $this->anio->forceFill(['estado' => AnioLectivo::CIERRE])->save();
+        $this->como($this->cuentaDocente)->postJson(self::URL, $this->datos())
+            ->assertStatus(422)->assertJsonValidationErrors(['seccion_id' => 'año lectivo activo']);
     }
 
     public function test_solo_docentes(): void

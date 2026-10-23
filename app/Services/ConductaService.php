@@ -26,6 +26,17 @@ class ConductaService
 {
     public const VALORACIONES = ['Excelente', 'Bueno', 'Malo', 'Deficiente'];
 
+    /**
+     * Observación fija de cada valoración (pedido de Josmy del 23/10/2026): el
+     * docente solo elige la valoración y su texto se guarda en conductas.descripcion.
+     */
+    public const OBSERVACIONES = [
+        'Excelente' => 'Muestra un comportamiento ejemplar y respeta las normas de convivencia.',
+        'Bueno' => 'Mantiene un buen comportamiento y cumple las normas de convivencia.',
+        'Malo' => 'Presenta faltas a las normas de convivencia; debe mejorar su comportamiento.',
+        'Deficiente' => 'Incumple de forma reiterada las normas de convivencia; requiere seguimiento.',
+    ];
+
     /** Sección en la que el docente imparte una materia o es docente guía. */
     public function seccionPropia(User $docente, $seccionId): Seccion
     {
@@ -40,7 +51,7 @@ class ConductaService
     /** Estudiantes de la sección con su conducta del periodo (o null). */
     public function listar(Seccion $seccion, $periodoId = null): array
     {
-        $periodos = PeriodoEscolar::deLaSeccion($seccion)->get(['id', 'nombre', 'nivel', 'anio_lectivo_id']);
+        $periodos = PeriodoEscolar::deLaSeccion($seccion)->get(['id', 'nombre', 'nivel', 'estado', 'anio_lectivo_id']);
         $periodo = $periodoId ? $this->periodoDeLaSeccion($seccion, $periodoId) : $periodos->first()?->load('anioLectivo');
 
         $conductas = $periodo
@@ -53,6 +64,7 @@ class ConductaService
             'periodo' => $periodo,
             'editable' => (bool) $periodo?->permiteRegistros(),
             'valoraciones' => self::VALORACIONES,
+            'observaciones' => self::OBSERVACIONES,
             'estudiantes' => $this->matriculas($seccion)->map(fn (Matricula $m) => [
                 'matricula_id' => $m->id,
                 'estudiante' => $m->estudiante,
@@ -65,7 +77,9 @@ class ConductaService
      * Conducta.registrar() para quien aún no la tiene en el periodo y
      * Conducta.actualizar(descripcion, valoracion) para quien ya la tiene.
      *
-     * @param  array<int, array{matricula_id: int, descripcion: string, valoracion: string}>  $filas
+     * La descripción es siempre la observación fija de la valoración.
+     *
+     * @param  array<int, array{matricula_id: int, valoracion: string}>  $filas
      */
     public function guardar(Seccion $seccion, $periodoId, array $filas): array
     {
@@ -83,6 +97,7 @@ class ConductaService
             $registradas = 0;
             $actualizadas = 0;
             foreach ($filas as $fila) {
+                $fila['descripcion'] = self::OBSERVACIONES[$fila['valoracion']];
                 $conducta = Conducta::where('periodo_escolar_id', $periodo->id)
                     ->where('matricula_id', $fila['matricula_id'])->lockForUpdate()->first();
 

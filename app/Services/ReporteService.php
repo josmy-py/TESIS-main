@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AnioLectivo;
 use App\Models\Asignacion;
 use App\Models\Boleta;
 use App\Models\Conducta;
@@ -32,6 +33,10 @@ class ReporteService
         $seccion = $user->esDirector()
             ? Seccion::with(['grado:id,nombre', 'anioLectivo:id,anio,estado'])->findOrFail($seccionId)
             : $this->conducta->seccionPropia($user, $seccionId);
+        // Los reportes del docente usan solo el año lectivo activo (pedido de Josmy del 23/10/2026)
+        if (! $user->esDirector() && $seccion->anioLectivo?->estado !== AnioLectivo::ACTIVO) {
+            throw ValidationException::withMessages(['seccion_id' => 'La sección no pertenece al año lectivo activo.']);
+        }
 
         // Profesor responsable (guía) de la sección, para la libreta de notas
         return $seccion->load('profesor:id,nombre');

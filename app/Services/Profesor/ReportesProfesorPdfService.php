@@ -2,6 +2,7 @@
 
 namespace App\Services\Profesor;
 
+use App\Models\AnioLectivo;
 use App\Models\Asignacion;
 use App\Models\Boleta;
 use App\Models\PeriodoEscolar;
@@ -34,6 +35,11 @@ use InvalidArgumentException;
  * matrícula aprobada de una sección donde el docente enseña o es guía; el profesor
  * es el docente que inició sesión. El tipo de conducta son valores fijos del
  * formulario y nada se guarda en la base de datos.
+ *
+ * Pedido de Josmy del 23/10/2026: los cuatro reportes usan solo secciones del año
+ * lectivo activo y muestran ese año (de solo lectura, sale de la sección); la
+ * libreta solo se genera con el período cerrado; se quitaron la descripción de
+ * la conducta de la libreta y los compromisos de mejora del reporte de conducta.
  */
 class ReportesProfesorPdfService
 {
@@ -57,6 +63,17 @@ class ReportesProfesorPdfService
         return Pdf::loadView($vista, $datos)->setPaper('letter', 'portrait');
     }
 
+    /** Año lectivo de la sección; los reportes del docente solo se generan con el año activo. */
+    private function anioActivo($seccion): int
+    {
+        $anio = $seccion->anioLectivo;
+        if (! $anio || $anio->estado !== AnioLectivo::ACTIVO) {
+            throw ValidationException::withMessages(['seccion_id' => 'La sección no pertenece al año lectivo activo.']);
+        }
+
+        return (int) $anio->anio;
+    }
+
     public function generarInforme(User $docente, array $datos): \Barryvdh\DomPDF\PDF
     {
         return $this->generar('informe_profesor', $this->datosInforme($docente, $datos));
@@ -68,6 +85,7 @@ class ReportesProfesorPdfService
         $contexto = $this->obtenerContextoInforme($docente, $datos);
 
         return [
+            'anio' => $contexto['anio'],
             'grado' => $contexto['grado'],
             'seccion' => $contexto['seccion'],
             'periodo' => $contexto['periodo'],
@@ -93,6 +111,7 @@ class ReportesProfesorPdfService
         }
 
         return [
+            'anio' => $this->anioActivo($seccion),
             'grado' => $seccion->grado?->nombre,
             'seccion' => $seccion->nombre,
             'periodo' => $periodo->nombre,
@@ -111,14 +130,20 @@ class ReportesProfesorPdfService
         if ((int) $seccion->grado_id !== (int) $datos['grado_id']) {
             throw ValidationException::withMessages(['seccion_id' => 'La sección no pertenece al grado seleccionado.']);
         }
+        $anio = $this->anioActivo($seccion);
 
         $notas = $this->reportes->notas($docente, $seccion, $datos['periodo_escolar_id']);
+        // Una sola libreta definitiva por período: solo cuando el período ya está cerrado
+        if ($notas['periodo']->estado !== PeriodoEscolar::CERRADO) {
+            throw ValidationException::withMessages(['periodo_escolar_id' => 'La libreta de notas solo se genera cuando el período está cerrado.']);
+        }
         $fila = $notas['estudiantes']->firstWhere('matricula_id', (int) $datos['matricula_id']);
         if (! $fila) {
             throw ValidationException::withMessages(['matricula_id' => 'El estudiante no está matriculado en la sección seleccionada.']);
         }
 
         return [
+            'anio' => $anio,
             'fecha_formateada' => FechaReporte::hoy(),
             'grado' => $seccion->grado?->nombre,
             'seccion' => $seccion->nombre,
@@ -126,7 +151,6 @@ class ReportesProfesorPdfService
             'profesor' => $seccion->profesor?->nombre,
             'estudiante' => $fila['estudiante']->nombre,
             'conducta' => $datos['conducta'] ?? '',
-            'conducta_descripcion' => $datos['conducta_descripcion'] ?? '',
             'observaciones' => $datos['observaciones'] ?? '',
             'materias' => $notas['materias']->map(fn ($m) => [
                 'nombre' => $m['nombre'],
@@ -155,6 +179,7 @@ class ReportesProfesorPdfService
         if ((int) $seccion->grado_id !== (int) $datos['grado_id']) {
             throw ValidationException::withMessages(['seccion_id' => 'La sección no pertenece al grado seleccionado.']);
         }
+        $anio = $this->anioActivo($seccion);
         $periodo = PeriodoEscolar::find($datos['periodo_escolar_id']);
         if (! $periodo || ! $periodo->esDeLaSeccion($seccion)) {
             throw ValidationException::withMessages(['periodo_escolar_id' => 'El período no pertenece al año lectivo ni al nivel de la sección.']);
@@ -168,6 +193,7 @@ class ReportesProfesorPdfService
         $conNota = $alumnos->whereNotNull('promedio');
 
         return [
+            'anio' => $anio,
             'fecha_formateada' => FechaReporte::hoy(),
             'grado' => $seccion->grado?->nombre,
             'seccion' => $seccion->nombre,
@@ -194,6 +220,7 @@ class ReportesProfesorPdfService
         if ((int) $seccion->grado_id !== (int) $datos['grado_id']) {
             throw ValidationException::withMessages(['seccion_id' => 'La sección no pertenece al grado seleccionado.']);
         }
+        $anio = $this->anioActivo($seccion);
         $periodo = PeriodoEscolar::find($datos['periodo_escolar_id']);
         if (! $periodo || ! $periodo->esDeLaSeccion($seccion)) {
             throw ValidationException::withMessages(['periodo_escolar_id' => 'El período no pertenece al año lectivo ni al nivel de la sección.']);
@@ -205,7 +232,7 @@ class ReportesProfesorPdfService
         $lineas = fn (string $texto) => collect(preg_split('/\R/', $texto))->map(fn ($l) => trim($l))->filter()->values()->all();
 
         return [
-            'anio' => $seccion->anioLectivo?->anio,
+            'anio' => $anio,
             'estudiante' => $matricula->estudiante?->nombre,
             'fecha_formateada' => FechaReporte::hoy(),
             'profesor' => $docente->profesor?->nombre,
@@ -215,7 +242,6 @@ class ReportesProfesorPdfService
             'tipo_conducta' => $datos['conducta'],
             'descripcion_hechos' => $datos['descripcion_hechos'],
             'acciones_tomadas' => $lineas($datos['acciones_tomadas']),
-            'compromiso_mejora' => $datos['compromiso_mejora'],
         ];
     }
 }

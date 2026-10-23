@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Reportes;
 
+use App\Models\AnioLectivo;
 use App\Models\Boleta;
 use App\Models\Grado;
 use App\Models\User;
@@ -52,7 +53,7 @@ class RendimientoTest extends TestCase
 
         $html = view('profesor.rendimiento', $datos)->render();
         foreach (['COMPLEJO EDUCATIVO HACIENDA COLIMA', 'REPORTE DE RENDIMIENTO ACADÉMICO', 'Primer grado', 'Prof. González', 'Matemática',
-            'Primer trimestre', '<b>Fecha:</b> 12/06/2026', '<b>Total de estudiantes:</b> 2', '<b>Promedio general:</b> 8.25', 'PROMEDIO ≥ 9.0',
+            'Primer trimestre', '<b>Fecha:</b> 12/06/2026', '<b>Año lectivo:</b> 2026', '<b>Total de estudiantes:</b> 2', '<b>Promedio general:</b> 8.25', 'PROMEDIO ≥ 9.0',
             '<td>Ana López</td><td class="prom">9.5</td>', 'Grupo satisfactorio.', 'Director(a)'] as $texto) {
             $this->assertStringContainsString($texto, $html);
         }
@@ -79,6 +80,11 @@ class RendimientoTest extends TestCase
             ->assertStatus(422)->assertJsonValidationErrors('periodo_escolar_id');
         $this->como($this->cuentaDocente)->postJson(self::URL, $this->datos(['profesor' => '']))
             ->assertStatus(422)->assertJsonValidationErrors('profesor');
+
+        // Solo secciones del año lectivo activo
+        $this->anio->forceFill(['estado' => AnioLectivo::CIERRE])->save();
+        $this->como($this->cuentaDocente)->postJson(self::URL, $this->datos())
+            ->assertStatus(422)->assertJsonValidationErrors(['seccion_id' => 'año lectivo activo']);
     }
 
     public function test_solo_docentes(): void
