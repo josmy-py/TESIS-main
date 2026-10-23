@@ -8,6 +8,7 @@ use App\Models\Evaluacion;
 use App\Models\Matricula;
 use App\Models\PeriodoEscolar;
 use App\Models\User;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -44,6 +45,37 @@ class NotasService
             ->get(['id', 'estudiante_id', 'seccion_id', 'estado'])
             ->sortBy(fn (Matricula $m) => mb_strtolower((string) $m->estudiante?->nombre))
             ->values();
+    }
+
+    /**
+     * Ficha del estudiante para el docente (Mis estudiantes > Ver, pedido de Josmy del
+     * 23/10/2026): datos del estudiante, padres (con DUI), encargado de la matrícula y
+     * si proviene de otra institución. Solo matrículas aprobadas de la sección.
+     */
+    public function fichaEstudiante(Asignacion $asignacion, $matriculaId): array
+    {
+        $matricula = Matricula::with([
+            'estudiante:id,nombre,nie,genero,fecha_nacimiento',
+            'estudiante.padres',
+            'encargado:id,nombre,dui,parentesco,telefono',
+        ])->where('seccion_id', $asignacion->seccion_id)->where('estado', 'aprobado')->findOrFail($matriculaId);
+        $estudiante = $matricula->estudiante;
+
+        return [
+            'matricula_id' => $matricula->id,
+            'es_trasladado' => (bool) $matricula->es_trasladado,
+            'estudiante' => [
+                'nombre' => $estudiante?->nombre,
+                'nie' => $estudiante?->nie,
+                'genero' => $estudiante?->genero,
+                'fecha_nacimiento' => $estudiante?->fecha_nacimiento ? Carbon::parse($estudiante->fecha_nacimiento)->format('Y-m-d') : null,
+            ],
+            'padres' => ($estudiante?->padres ?? collect())->map(fn ($p) => [
+                'nombre' => $p->nombre, 'parentesco' => $p->pivot?->parentesco, 'dui' => $p->dui,
+                'telefono' => $p->telefono, 'email' => $p->email,
+            ])->values(),
+            'encargado' => $matricula->encargado?->only(['nombre', 'dui', 'parentesco', 'telefono']),
+        ];
     }
 
     /** Periodos del año lectivo de la sección, de su nivel académico. */

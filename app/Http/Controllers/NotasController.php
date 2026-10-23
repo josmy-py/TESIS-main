@@ -32,6 +32,16 @@ class NotasController extends Controller
         }, 'Error al obtener los estudiantes', 'Asignación no encontrada');
     }
 
+    /** Mis estudiantes > Ver: ficha del estudiante de una sección del docente. */
+    public function fichaEstudiante(Request $request, string $asignacionId, string $matriculaId)
+    {
+        return $this->responder(function () use ($request, $asignacionId, $matriculaId) {
+            $asignacion = $this->notas->asignacionPropia($request->user(), $asignacionId);
+
+            return response()->json($this->notas->fichaEstudiante($asignacion, $matriculaId));
+        }, 'Error al obtener el estudiante', 'Estudiante no encontrado');
+    }
+
     public function evaluaciones(Request $request, string $asignacionId)
     {
         return $this->responder(function () use ($request, $asignacionId) {

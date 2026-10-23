@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AnioLectivo;
 use App\Models\Asignacion;
 use App\Models\Conducta;
 use App\Models\Matricula;
@@ -18,24 +19,34 @@ use Illuminate\Validation\ValidationException;
  * Mapa de funciones: SIGA Docente > Conducta > "Registrar observaciones" y
  * "Seguimiento conductual".
  *
- * Una conducta por estudiante y periodo. La registran los docentes de la sección
- * (con una materia asignada en ella o como docente guía); lo ajeno responde 404.
- * Solo se registra o modifica en periodos de un año lectivo activo.
+ * La registran los docentes de la sección (con una materia asignada en ella o
+ * como docente guía); lo ajeno responde 404.
+ *
+ * Pedido de Josmy del 23/10/2026: la conducta se evalúa con 5 criterios fijos,
+ * cada uno con su valoración (una fila de conductas por criterio: descripcion =
+ * criterio). Se registra una sola vez por estudiante y periodo, cuando el periodo
+ * ya terminó (está cerrado) y el año lectivo sigue activo; después no se edita.
  */
 class ConductaService
 {
     public const VALORACIONES = ['Excelente', 'Bueno', 'Malo', 'Deficiente'];
 
-    /**
-     * Observación fija de cada valoración (pedido de Josmy del 23/10/2026): el
-     * docente solo elige la valoración y su texto se guarda en conductas.descripcion.
-     */
-    public const OBSERVACIONES = [
-        'Excelente' => 'Muestra un comportamiento ejemplar y respeta las normas de convivencia.',
-        'Bueno' => 'Mantiene un buen comportamiento y cumple las normas de convivencia.',
-        'Malo' => 'Presenta faltas a las normas de convivencia; debe mejorar su comportamiento.',
-        'Deficiente' => 'Incumple de forma reiterada las normas de convivencia; requiere seguimiento.',
+    /** Criterios de conducta (textos de Josmy); cada uno se guarda en conductas.descripcion. */
+    public const CRITERIOS = [
+        'Se respeta a sí mismo y a los demás.',
+        'Convive de forma armoniosa con sus compañeros.',
+        'Toma decisiones responsables.',
+        'Cumple con sus deberes y hace valer correctamente sus derechos.',
+        'Practica valores morales y cívicos.',
     ];
+
+    /** Conductas de un periodo en el orden de los criterios (una anterior sin criterio va al final). */
+    public static function ordenar(Collection $conductas): Collection
+    {
+        return $conductas->sortBy(fn (Conducta $c) => [
+            ($i = array_search($c->descripcion, self::CRITERIOS, true)) === false ? count(self::CRITERIOS) : $i, $c->id,
+        ])->values();
+    }
 
     /** Sección en la que el docente imparte una materia o es docente guía. */
     public function seccionPropia(User $docente, $seccionId): Seccion
@@ -48,72 +59,86 @@ class ConductaService
             ->findOrFail($seccionId);
     }
 
-    /** Estudiantes de la sección con su conducta del periodo (o null). */
+    /** Estudiantes de la sección con su evaluación de conducta del periodo (registrada o pendiente). */
     public function listar(Seccion $seccion, $periodoId = null): array
     {
         $periodos = PeriodoEscolar::deLaSeccion($seccion)->get(['id', 'nombre', 'nivel', 'estado', 'anio_lectivo_id']);
         $periodo = $periodoId ? $this->periodoDeLaSeccion($seccion, $periodoId) : $periodos->first()?->load('anioLectivo');
 
         $conductas = $periodo
-            ? Conducta::where('periodo_escolar_id', $periodo->id)->get()->keyBy('matricula_id')
+            ? Conducta::where('periodo_escolar_id', $periodo->id)->whereIn('descripcion', self::CRITERIOS)->get()->groupBy('matricula_id')
             : collect();
 
         return [
             'seccion' => $seccion,
             'periodos' => $periodos,
             'periodo' => $periodo,
-            'editable' => (bool) $periodo?->permiteRegistros(),
+            'editable' => (bool) ($periodo && $this->permiteRegistrar($periodo)),
+            'motivo' => $periodo && ! $this->permiteRegistrar($periodo) ? $this->motivoBloqueo($periodo) : null,
             'valoraciones' => self::VALORACIONES,
-            'observaciones' => self::OBSERVACIONES,
-            'estudiantes' => $this->matriculas($seccion)->map(fn (Matricula $m) => [
-                'matricula_id' => $m->id,
-                'estudiante' => $m->estudiante,
-                'conducta' => $conductas->get($m->id)?->only(['id', 'descripcion', 'valoracion']),
-            ])->values(),
+            'criterios' => self::CRITERIOS,
+            'estudiantes' => $this->matriculas($seccion)->map(function (Matricula $m) use ($conductas) {
+                $propias = ($conductas[$m->id] ?? collect())->keyBy('descripcion');
+
+                return [
+                    'matricula_id' => $m->id,
+                    'estudiante' => $m->estudiante,
+                    'registrada' => $propias->isNotEmpty(),
+                    'criterios' => collect(self::CRITERIOS)->map(fn ($c) => [
+                        'criterio' => $c, 'valoracion' => $propias->get($c)?->valoracion,
+                    ])->values(),
+                ];
+            })->values(),
         ];
     }
 
-    /**
-     * Conducta.registrar() para quien aún no la tiene en el periodo y
-     * Conducta.actualizar(descripcion, valoracion) para quien ya la tiene.
-     *
-     * La descripción es siempre la observación fija de la valoración.
-     *
-     * @param  array<int, array{matricula_id: int, valoracion: string}>  $filas
-     */
-    public function guardar(Seccion $seccion, $periodoId, array $filas): array
+    /** La conducta se registra cuando el periodo terminó (cerrado) y su año lectivo sigue activo. */
+    public function permiteRegistrar(PeriodoEscolar $periodo): bool
     {
-        return DB::transaction(function () use ($seccion, $periodoId, $filas) {
+        return $periodo->estado === PeriodoEscolar::CERRADO
+            && $periodo->anioLectivo?->estado === AnioLectivo::ACTIVO;
+    }
+
+    private function motivoBloqueo(PeriodoEscolar $periodo): string
+    {
+        return $periodo->estado !== PeriodoEscolar::CERRADO
+            ? "La conducta se registra cuando el periodo {$periodo->nombre} termine (esté cerrado)."
+            : 'El año lectivo de este periodo no está activo: la conducta solo se puede consultar.';
+    }
+
+    /**
+     * Conducta.registrar(): los 5 criterios de un estudiante en el periodo, una sola
+     * vez. Una conducta anterior (formato de una sola observación) se reemplaza.
+     *
+     * @param  array<int, string>  $valoraciones  una por criterio, en el orden de CRITERIOS
+     */
+    public function registrar(Seccion $seccion, $periodoId, $matriculaId, array $valoraciones): array
+    {
+        return DB::transaction(function () use ($seccion, $periodoId, $matriculaId, $valoraciones) {
             $periodo = $this->periodoDeLaSeccion($seccion, $periodoId);
-            if (! $periodo->permiteRegistros()) {
-                throw new \DomainException($periodo->motivoBloqueo('no se puede registrar ni modificar la conducta'));
+            if (! $this->permiteRegistrar($periodo)) {
+                throw new \DomainException($this->motivoBloqueo($periodo));
+            }
+            if (! $this->matriculas($seccion)->contains('id', (int) $matriculaId)) {
+                throw ValidationException::withMessages(['matricula_id' => 'El estudiante no está matriculado en esta sección.']);
             }
 
-            $validas = $this->matriculas($seccion)->pluck('id')->all();
-            if (collect($filas)->pluck('matricula_id')->contains(fn ($id) => ! in_array((int) $id, $validas, true))) {
-                throw ValidationException::withMessages(['conductas' => 'Hay estudiantes que no están matriculados en esta sección.']);
+            // Bloquea la matrícula para que dos docentes no la registren a la vez
+            Matricula::whereKey($matriculaId)->lockForUpdate()->first();
+            $anteriores = Conducta::where('periodo_escolar_id', $periodo->id)->where('matricula_id', $matriculaId);
+            if ((clone $anteriores)->whereIn('descripcion', self::CRITERIOS)->exists()) {
+                throw new \DomainException('La conducta de este estudiante ya está registrada en este periodo.');
+            }
+            $reemplazadas = (clone $anteriores)->delete();
+
+            foreach (self::CRITERIOS as $i => $criterio) {
+                Conducta::create([
+                    'descripcion' => $criterio, 'valoracion' => $valoraciones[$i],
+                    'matricula_id' => $matriculaId, 'periodo_escolar_id' => $periodo->id,
+                ]);
             }
 
-            $registradas = 0;
-            $actualizadas = 0;
-            foreach ($filas as $fila) {
-                $fila['descripcion'] = self::OBSERVACIONES[$fila['valoracion']];
-                $conducta = Conducta::where('periodo_escolar_id', $periodo->id)
-                    ->where('matricula_id', $fila['matricula_id'])->lockForUpdate()->first();
-
-                if (! $conducta) {
-                    Conducta::create([
-                        'descripcion' => $fila['descripcion'], 'valoracion' => $fila['valoracion'],
-                        'matricula_id' => $fila['matricula_id'], 'periodo_escolar_id' => $periodo->id,
-                    ]);
-                    $registradas++;
-                } elseif ($conducta->descripcion !== $fila['descripcion'] || $conducta->valoracion !== $fila['valoracion']) {
-                    $conducta->update(['descripcion' => $fila['descripcion'], 'valoracion' => $fila['valoracion']]);
-                    $actualizadas++;
-                }
-            }
-
-            return ['registradas' => $registradas, 'actualizadas' => $actualizadas];
+            return ['registradas' => count(self::CRITERIOS), 'reemplazadas' => $reemplazadas];
         });
     }
 

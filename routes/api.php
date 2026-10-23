@@ -164,6 +164,7 @@ Route::middleware(['auth:api', 'sesion', 'role:DOCENTE'])->group(function () {
     Route::get('docente/carga', [AsignacionController::class, 'miCarga']);
     // M7 Notas: estudiantes, evaluaciones y calificaciones de sus asignaciones
     Route::get('docente/asignaciones/{id}/estudiantes', [NotasController::class, 'estudiantes'])->whereNumber('id');
+    Route::get('docente/asignaciones/{id}/estudiantes/{matricula}', [NotasController::class, 'fichaEstudiante'])->whereNumber(['id', 'matricula']);
     Route::get('docente/asignaciones/{id}/evaluaciones', [NotasController::class, 'evaluaciones'])->whereNumber('id');
     Route::post('docente/asignaciones/{id}/evaluaciones', [NotasController::class, 'crearEvaluacion'])->whereNumber('id');
     Route::delete('docente/evaluaciones/{id}', [NotasController::class, 'eliminarEvaluacion'])->whereNumber('id');

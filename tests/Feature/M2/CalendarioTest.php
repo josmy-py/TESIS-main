@@ -97,7 +97,7 @@ class CalendarioTest extends TestCase
             $this->agregarPeriodo($id, ['nombre' => "Periodo {$n}", 'nivel' => 1])->assertCreated();
         }
         $this->agregarPeriodo($id, ['nombre' => 'Extra', 'nivel' => 1])->assertStatus(409)
-            ->assertJsonPath('message', 'Un año lectivo admite como máximo 6 periodos de Parvularia y Educación Básica.');
+            ->assertJsonPath('message', 'Un año lectivo admite como máximo 6 periodos de nivel 1.');
         $this->agregarPeriodo($id, ['nombre' => 'Extra', 'nivel' => 2])->assertCreated();
     }
 

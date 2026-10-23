@@ -100,15 +100,19 @@ class ConsultaAcademicaService
         ];
     }
 
-    /** Conducta de la matrícula en cada periodo del año (null si aún no se registra). */
+    /**
+     * Conducta de la matrícula en cada periodo del año: los criterios evaluados con
+     * su valoración (lista vacía si aún no se registra), en el orden de los criterios.
+     */
     public function conducta(Matricula $matricula): array
     {
-        $conductas = Conducta::where('matricula_id', $matricula->id)->get()->keyBy('periodo_escolar_id');
+        $conductas = Conducta::where('matricula_id', $matricula->id)->orderBy('id')->get()->groupBy('periodo_escolar_id');
 
         return [
             'periodos' => $this->periodos($matricula)->map(fn (PeriodoEscolar $p) => [
                 'periodo' => $p,
-                'conducta' => $conductas->get($p->id)?->only(['descripcion', 'valoracion']),
+                'conductas' => ConductaService::ordenar($conductas->get($p->id) ?? collect())
+                    ->map(fn (Conducta $c) => $c->only(['descripcion', 'valoracion']))->values(),
             ])->values(),
         ];
     }
@@ -126,7 +130,8 @@ class ConsultaAcademicaService
             'resultados' => $matriculas->map(fn (Matricula $m) => [
                 'matricula_id' => $m->id,
                 'nota_final' => $finales->get($m->id)?->only(['promedio_anual', 'estado']),
-                'conducta' => ($conductas[$m->id] ?? collect())->sortBy('periodo_escolar_id')->map(fn ($c) => [
+                'conducta' => ($conductas[$m->id] ?? collect())->groupBy('periodo_escolar_id')->sortKeys()
+                    ->flatMap(fn ($grupo) => ConductaService::ordenar($grupo))->map(fn ($c) => [
                     'periodo' => $c->periodo?->nombre, 'descripcion' => $c->descripcion, 'valoracion' => $c->valoracion,
                 ])->values(),
             ])->values(),

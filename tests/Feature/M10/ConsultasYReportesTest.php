@@ -8,6 +8,7 @@ use App\Models\Discapacidad;
 use App\Models\Expediente;
 use App\Models\NotaFinal;
 use App\Models\User;
+use App\Services\ConductaService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Feature\M8\DatosAcademicos;
 use Tests\TestCase;
@@ -55,8 +56,16 @@ class ConsultasYReportesTest extends TestCase
         $id = $this->estudiantes['Ana López']->id;
         $r = $this->como($this->encargado)->getJson("/api/estudiantes/{$id}/conducta")->assertOk();
 
-        $this->assertSame(['descripcion' => 'Respetuosa', 'valoracion' => 'Excelente'], $r->json('periodos.0.conducta'));
-        $this->assertNull($r->json('periodos.1.conducta'));
+        $this->assertSame([['descripcion' => 'Respetuosa', 'valoracion' => 'Excelente']], $r->json('periodos.0.conductas'));
+        $this->assertSame([], $r->json('periodos.1.conductas'));
+
+        // Conducta por criterios: en el orden de los criterios
+        $criterios = ConductaService::CRITERIOS;
+        foreach ([4, 0, 2, 1, 3] as $i) {
+            Conducta::create(['descripcion' => $criterios[$i], 'valoracion' => 'Bueno', 'matricula_id' => $this->matriculas['Ana López'], 'periodo_escolar_id' => $this->periodos[1]->id]);
+        }
+        $r = $this->como($this->encargado)->getJson("/api/estudiantes/{$id}/conducta")->assertOk();
+        $this->assertSame($criterios, collect($r->json('periodos.1.conductas'))->pluck('descripcion')->all());
     }
 
     public function test_pendiente_sin_notas_y_lo_ajeno_no_se_ve(): void

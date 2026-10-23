@@ -29,25 +29,27 @@ class ConductaController extends Controller
         }, 'Error al obtener la conducta', 'Sección no encontrada');
     }
 
+    /** Registra los 5 criterios de conducta de un estudiante en el periodo (una sola vez). */
     public function guardar(Request $request, string $seccionId)
     {
         return $this->responder(function () use ($request, $seccionId) {
             $datos = $request->validate([
                 'periodo_escolar_id' => 'required|integer',
-                'conductas' => 'required|array|min:1',
-                'conductas.*.matricula_id' => 'required|integer|distinct',
-                'conductas.*.valoracion' => ['required', Rule::in(ConductaService::VALORACIONES)],
+                'matricula_id' => 'required|integer',
+                'valoraciones' => 'required|array|size:'.count(ConductaService::CRITERIOS),
+                'valoraciones.*' => ['required', Rule::in(ConductaService::VALORACIONES)],
             ], [
                 'periodo_escolar_id.required' => 'Indique el periodo.',
-                'conductas.required' => 'No hay conducta para guardar.',
-                'conductas.*.matricula_id.distinct' => 'Un estudiante aparece dos veces.',
-                'conductas.*.valoracion.required' => 'Seleccione la valoración.',
-                'conductas.*.valoracion.in' => 'La valoración debe ser '.implode(', ', ConductaService::VALORACIONES).'.',
+                'matricula_id.required' => 'Seleccione el estudiante.',
+                'valoraciones.required' => 'Valore cada criterio.',
+                'valoraciones.size' => 'Valore los '.count(ConductaService::CRITERIOS).' criterios.',
+                'valoraciones.*.required' => 'Seleccione la valoración.',
+                'valoraciones.*.in' => 'La valoración debe ser '.implode(', ', ConductaService::VALORACIONES).'.',
             ]);
             $seccion = $this->conducta->seccionPropia($request->user(), $seccionId);
 
-            return response()->json(['message' => 'Conducta guardada']
-                + $this->conducta->guardar($seccion, $datos['periodo_escolar_id'], $datos['conductas']));
+            return response()->json(['message' => 'Conducta registrada']
+                + $this->conducta->registrar($seccion, $datos['periodo_escolar_id'], $datos['matricula_id'], array_values($datos['valoraciones'])));
         }, 'Error al guardar la conducta', 'Sección no encontrada');
     }
 }

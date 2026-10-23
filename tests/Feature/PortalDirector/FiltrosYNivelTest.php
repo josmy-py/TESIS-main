@@ -123,16 +123,12 @@ class FiltrosYNivelTest extends TestCase
         $estado($bach, 'activo')->assertOk()->assertJsonPath('periodo.nivel_nombre', 'Bachillerato');
     }
 
-    public function test_el_nivel_solo_cambia_en_un_periodo_pendiente_sin_registros(): void
+    public function test_el_nivel_no_se_edita_despues_de_crear_el_periodo(): void
     {
-        $editar = fn ($p, $nivel) => $this->como($this->director)->putJson("/api/periodos-escolares/{$p->id}", ['nombre' => $p->nombre, 'nivel' => $nivel]);
-
-        $editar($this->periodos[1], 2)->assertOk()->assertJsonPath('periodo.nivel', 2);
-        $editar($this->periodos[1], 3)->assertStatus(422)->assertJsonValidationErrors('nivel');
-
-        Conducta::create(['descripcion' => 'Bien', 'valoracion' => 'Excelente', 'matricula_id' => $this->matriculas['Ana López'], 'periodo_escolar_id' => $this->periodos[0]->id]);
-        $editar($this->periodos[0], 2)->assertStatus(409)
-            ->assertJsonPath('message', 'El nivel solo se cambia en un periodo pendiente y sin notas ni conducta registradas.');
+        // Pedido de Josmy (23/10/2026): al editar solo cambia el nombre; un nivel enviado se ignora
+        $this->como($this->director)->putJson("/api/periodos-escolares/{$this->periodos[1]->id}", ['nombre' => 'Segundo periodo', 'nivel' => 2])
+            ->assertOk()->assertJsonPath('periodo.nombre', 'Segundo periodo')->assertJsonPath('periodo.nivel', 1);
+        $this->assertSame(1, (int) $this->periodos[1]->fresh()->nivel);
     }
 
     public function test_migracion_pasa_los_periodos_a_nivel_academico_sin_perder_registros(): void
