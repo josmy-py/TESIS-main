@@ -3,7 +3,6 @@
 namespace Tests\Feature\M7;
 
 use App\Models\AnioLectivo;
-use App\Models\PlanAsignatura;
 use App\Models\Asignacion;
 use App\Models\Asignatura;
 use App\Models\Calificacion;
@@ -52,10 +51,10 @@ class NotasTest extends TestCase
             'nombre' => 'Plan', 'especialidad_id' => null, 'estado' => true,
             'fecha_inicio' => '2026-01-15', 'fecha_fin' => '2030-11-30', 'fecha_aprobacion' => '2025-12-01', 'descripcion' => 'Pensum',
         ]);
-        $matematica = PlanAsignatura::enlazar($plan->id, 'Matemática');
-        $lenguaje = PlanAsignatura::enlazar($plan->id, 'Lenguaje');
-        $this->asignacion = Asignacion::create(['profesor_id' => $this->docente->id, 'plan_asignatura_id' => $matematica->id, 'seccion_id' => $this->seccion->id]);
-        $this->ajena = Asignacion::create(['profesor_id' => $otro->id, 'plan_asignatura_id' => $lenguaje->id, 'seccion_id' => $this->seccion->id]);
+        $matematica = Asignatura::create(['nombre' => 'Matemática', 'plan_estudio_id' => $plan->id]);
+        $lenguaje = Asignatura::create(['nombre' => 'Lenguaje', 'plan_estudio_id' => $plan->id]);
+        $this->asignacion = Asignacion::create(['profesor_id' => $this->docente->id, 'asignatura_id' => $matematica->id, 'seccion_id' => $this->seccion->id]);
+        $this->ajena = Asignacion::create(['profesor_id' => $otro->id, 'asignatura_id' => $lenguaje->id, 'seccion_id' => $this->seccion->id]);
 
         $encargado = $this->usuario(User::ROL_ENCARGADO);
         foreach (['Zoila Pérez' => 'aprobado', 'Ana López' => 'aprobado', 'Pedro Pendiente' => 'pendiente'] as $nombre => $estado) {

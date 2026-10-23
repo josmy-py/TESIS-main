@@ -5,8 +5,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * Catálogo de asignaturas (diagrama ER 21/10/2026: solo nombre). Los planes de
- * estudio las incluyen mediante plan_asignaturas.
+ * Pedido de Josmy (22/10/2026): sin la tabla intermedia plan_asignaturas. Un
+ * plan de estudios tiene muchas asignaturas (plan_estudio_id) y cada
+ * asignación apunta a su asignatura (asignaciones.asignatura_id).
  */
 class Asignatura extends Model
 {
@@ -14,20 +15,16 @@ class Asignatura extends Model
 
     protected $fillable = [
         'nombre',
+        'plan_estudio_id',
     ];
-
-    public function planAsignaturas()
-    {
-        return $this->hasMany(PlanAsignatura::class);
-    }
-
-    public function planes()
-    {
-        return $this->belongsToMany(PlanEstudio::class, 'plan_asignaturas')->withTimestamps();
-    }
 
     public function asignaciones()
     {
-        return $this->hasManyThrough(Asignacion::class, PlanAsignatura::class);
+        return $this->hasMany(Asignacion::class);
+    }
+
+    public function planEstudio()
+    {
+        return $this->belongsTo(PlanEstudio::class, 'plan_estudio_id');
     }
 }

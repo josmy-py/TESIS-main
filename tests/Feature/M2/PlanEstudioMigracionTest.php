@@ -42,20 +42,19 @@ class PlanEstudioMigracionTest extends TestCase
         $fila = DB::table('plan_estudios')->find($plan);
         $this->assertFalse(Schema::hasColumn('plan_estudios', 'grado_id'));
         $this->assertSame($especialidad, (int) $fila->especialidad_id);
-        // Diagrama del 21/10/2026: la asignatura queda en el plan mediante plan_asignaturas
-        $this->assertSame(1, DB::table('plan_asignaturas')->where('plan_estudio_id', $plan)->count());
+        // Pedido de Josmy (22/10/2026): la asignatura vuelve a pertenecer a su plan (sin plan_asignaturas)
+        $this->assertSame(1, DB::table('asignaturas')->where('plan_estudio_id', $plan)->count());
 
-        // La misma asignatura se enlaza a otro plan, y la especialidad es opcional
+        // El mismo nombre se admite en otro plan, y la especialidad es opcional
         $otro = DB::table('plan_estudios')->insertGetId([
             'nombre' => 'Plan Básica', 'especialidad_id' => null, 'estado' => true,
             'fecha_inicio' => '2026-01-15', 'fecha_fin' => '2026-11-30', 'descripcion' => 'Y', 'fecha_aprobacion' => '2025-12-01',
         ]);
-        $lenguaje = DB::table('asignaturas')->where('nombre', 'Lenguaje')->value('id');
-        DB::table('plan_asignaturas')->insert(['plan_estudio_id' => $otro, 'asignatura_id' => $lenguaje]);
-        $this->assertSame(2, DB::table('plan_asignaturas')->where('asignatura_id', $lenguaje)->count());
+        DB::table('asignaturas')->insert(['nombre' => 'Lenguaje', 'plan_estudio_id' => $otro]);
+        $this->assertSame(2, DB::table('asignaturas')->where('nombre', 'Lenguaje')->count());
 
         // Reversible cuando los datos lo permiten
-        DB::table('plan_asignaturas')->where('plan_estudio_id', $otro)->delete();
+        DB::table('asignaturas')->where('plan_estudio_id', $otro)->delete();
         DB::table('plan_estudios')->where('id', $otro)->delete();
         $this->revertirM23();
         $this->assertFalse(Schema::hasColumn('plan_estudios', 'grado_id'));

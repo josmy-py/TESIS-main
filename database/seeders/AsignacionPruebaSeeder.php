@@ -6,7 +6,6 @@ use App\Models\AnioLectivo;
 use App\Models\Asignacion;
 use App\Models\Asignatura;
 use App\Models\Grado;
-use App\Models\PlanAsignatura;
 use App\Models\PlanEstudio;
 use App\Models\Seccion;
 use App\Models\User;
@@ -64,23 +63,20 @@ class AsignacionPruebaSeeder extends Seeder
                 continue;
             }
 
-            // Catálogo de asignaturas y su enlace con el plan (plan_asignaturas)
             foreach ($materias as $materia) {
-                $asignatura = Asignatura::firstOrCreate(['nombre' => $materia]);
-                PlanAsignatura::firstOrCreate(['plan_estudio_id' => $plan->id, 'asignatura_id' => $asignatura->id]);
+                Asignatura::firstOrCreate(['plan_estudio_id' => $plan->id, 'nombre' => $materia]);
             }
 
             foreach (self::ASIGNADAS as $materia) {
-                $planAsignatura = PlanAsignatura::where('plan_estudio_id', $plan->id)
-                    ->whereHas('asignatura', fn ($q) => $q->where('nombre', $materia))->first();
-                if (! $planAsignatura || Asignacion::where('seccion_id', $seccion->id)->where('plan_asignatura_id', $planAsignatura->id)->exists()) {
+                $asignatura = Asignatura::where('plan_estudio_id', $plan->id)->where('nombre', $materia)->first();
+                if (! $asignatura || Asignacion::where('seccion_id', $seccion->id)->where('asignatura_id', $asignatura->id)->exists()) {
                     continue;
                 }
 
                 $servicio->crear([
                     'profesor_id' => $profesor->id,
                     'seccion_id' => $seccion->id,
-                    'plan_asignatura_id' => $planAsignatura->id,
+                    'asignatura_id' => $asignatura->id,
                 ]);
             }
         }

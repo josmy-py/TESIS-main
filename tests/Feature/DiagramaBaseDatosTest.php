@@ -10,6 +10,10 @@ use Tests\TestCase;
  * La base de datos debe coincidir con el diagrama ER (documentacion\Diagramas
  * de SIGA.png, versión del 21/10/2026). Regla de Josmy (13/10/2026): si no viene en el diagrama, no se
  * toma. No hay columnas ni tablas de negocio fuera de él.
+ * Excepción ordenada por Josmy (22/10/2026): sin la tabla intermedia
+ * plan_asignaturas; un plan de estudios tiene muchas asignaturas
+ * (asignaturas.plan_estudio_id) y la asignación apunta a la asignatura
+ * (asignaciones.asignatura_id).
  */
 class DiagramaBaseDatosTest extends TestCase
 {
@@ -33,14 +37,13 @@ class DiagramaBaseDatosTest extends TestCase
         'matriculas' => ['ingreso', 'estudiante_id', 'encargado_id', 'enfermedad_id', 'seccion_id', 'especialidad_id', 'es_trasladado', 'estado', 'foto', 'documento', 'anio_lectivo_id'],
         'especialidades' => ['nombre'],
         'plan_estudios' => ['nombre', 'especialidad_id', 'estado', 'fecha_inicio', 'fecha_fin', 'descripcion', 'fecha_aprobacion'],
-        // Diagrama actualizado por Josmy (21/10/2026): plan_asignaturas une planes y asignaturas
-        'asignaturas' => ['nombre'],
-        'plan_asignaturas' => ['plan_estudio_id', 'asignatura_id'],
+        // Josmy (22/10/2026): sin plan_asignaturas; cada asignatura pertenece a un plan
+        'asignaturas' => ['nombre', 'plan_estudio_id'],
         'anios_lectivos' => ['anio', 'fecha_inicio', 'fecha_fin', 'inicio_matricula', 'fin_matricula', 'estado'],
         'secciones' => ['nombre', 'profesor_id', 'grado_id', 'capacidad', 'turno', 'anio_lectivo_id'],
         'grados' => ['nombre'],
         'profesores' => ['nombre', 'fecha_nacimiento', 'codigo', 'telefono', 'dui', 'direccion', 'user_id'],
-        'asignaciones' => ['profesor_id', 'plan_asignatura_id', 'seccion_id'],
+        'asignaciones' => ['profesor_id', 'asignatura_id', 'seccion_id'],
         'calificaciones' => ['nota_obtenida', 'evaluacion_id', 'matricula_id'],
         'evaluaciones' => ['nombre', 'porcentaje', 'periodo_escolar_id', 'asignacion_id'],
         'periodo_escolares' => ['nombre', 'nivel', 'anio_lectivo_id', 'estado'],

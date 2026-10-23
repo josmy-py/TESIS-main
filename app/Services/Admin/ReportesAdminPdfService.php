@@ -96,8 +96,7 @@ class ReportesAdminPdfService
 
         $materias = (clone $boletas)
             ->join('asignaciones', 'asignaciones.id', '=', 'boletas.asignacion_id')
-            ->join('plan_asignaturas', 'plan_asignaturas.id', '=', 'asignaciones.plan_asignatura_id')
-            ->join('asignaturas', 'asignaturas.id', '=', 'plan_asignaturas.asignatura_id')
+            ->join('asignaturas', 'asignaturas.id', '=', 'asignaciones.asignatura_id')
             ->groupBy('asignaturas.nombre')
             ->select('asignaturas.nombre')
             ->selectRaw('AVG(boletas.promedio) as promedio')

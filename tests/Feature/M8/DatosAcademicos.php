@@ -3,7 +3,6 @@
 namespace Tests\Feature\M8;
 
 use App\Models\AnioLectivo;
-use App\Models\PlanAsignatura;
 use App\Models\Asignacion;
 use App\Models\Asignatura;
 use App\Models\Calificacion;
@@ -59,9 +58,9 @@ trait DatosAcademicos
             'fecha_inicio' => '2026-01-15', 'fecha_fin' => '2030-11-30', 'fecha_aprobacion' => '2025-12-01', 'descripcion' => 'Pensum',
         ]);
         $this->matematica = Asignacion::create(['profesor_id' => $docente->id, 'seccion_id' => $this->seccion->id,
-            'plan_asignatura_id' => PlanAsignatura::enlazar($plan->id, 'Matemática')->id]);
+            'asignatura_id' => Asignatura::create(['nombre' => 'Matemática', 'plan_estudio_id' => $plan->id])->id]);
         $this->lenguaje = Asignacion::create(['profesor_id' => $otro->id, 'seccion_id' => $this->seccion->id,
-            'plan_asignatura_id' => PlanAsignatura::enlazar($plan->id, 'Lenguaje')->id]);
+            'asignatura_id' => Asignatura::create(['nombre' => 'Lenguaje', 'plan_estudio_id' => $plan->id])->id]);
 
         $this->encargado = $this->usuario(User::ROL_ENCARGADO);
         foreach (['Zoila Pérez' => 'aprobado', 'Ana López' => 'aprobado', 'Pedro Pendiente' => 'pendiente'] as $nombre => $estado) {

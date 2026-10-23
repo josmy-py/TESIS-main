@@ -3,7 +3,6 @@
 namespace Tests\Feature\M2;
 
 use App\Models\AnioLectivo;
-use App\Models\PlanAsignatura;
 use App\Models\Asignatura;
 use App\Models\Grado;
 use App\Models\PlanEstudio;
@@ -96,8 +95,8 @@ class SeccionesTest extends TestCase
             'nombre' => 'Plan', 'grado_id' => $this->primero->id, 'estado' => true, 'fecha_inicio' => '2026-01-15',
             'fecha_fin' => '2026-11-30', 'fecha_aprobacion' => '2025-12-01', 'descripcion' => 'Pensum',
         ]);
-        $asignatura = PlanAsignatura::enlazar($plan->id, 'Lenguaje');
-        DB::table('asignaciones')->insert(['profesor_id' => $this->profesor->id, 'plan_asignatura_id' => $asignatura->id, 'seccion_id' => $seccionId]);
+        $asignatura = Asignatura::create(['nombre' => 'Lenguaje', 'plan_estudio_id' => $plan->id]);
+        DB::table('asignaciones')->insert(['profesor_id' => $this->profesor->id, 'asignatura_id' => $asignatura->id, 'seccion_id' => $seccionId]);
     }
 
     // --- Crear ---

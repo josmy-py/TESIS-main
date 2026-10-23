@@ -60,7 +60,7 @@ Artisan::command('siga:diagnostico-calendario', function () {
 // de pensum y de un plan por sección (D-A1). Solo lee; no modifica nada.
 Artisan::command('siga:diagnostico-asignaciones', function () {
     $secciones = [
-        'duplicadas' => ['Misma materia repetida en una sección (impide el índice único)', ['seccion_id', 'plan_asignatura_id', 'total', 'primera_id']],
+        'duplicadas' => ['Misma materia repetida en una sección (impide el índice único)', ['seccion_id', 'asignatura_id', 'total', 'primera_id']],
         'secciones_con_varios_planes' => ['Secciones con materias de más de un plan', ['seccion_id', 'planes']],
     ];
 

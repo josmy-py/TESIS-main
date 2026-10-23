@@ -17,6 +17,9 @@ use Tests\TestCase;
  * plan_asignaturas entre planes y asignaturas, asignaciones con
  * plan_asignatura_id, periodo_escolares.nombre y estado activo. No pierde datos
  * y revertir devuelve lo anterior.
+ * Desde el 22/10/2026 la migración 000020 (pedido de Josmy) quita
+ * plan_asignaturas: aquí se comprueba el estado intermedio de la 000019 y al
+ * final el resultado de las dos.
  */
 class PlanAsignaturasDiagramaTest extends TestCase
 {
@@ -77,6 +80,8 @@ class PlanAsignaturasDiagramaTest extends TestCase
         $p2 = DB::table('periodo_escolares')->insertGetId(['nombre_periodo' => 'Segundo trimestre', 'nivel' => 2, 'anio_lectivo_id' => $anio, 'estado' => 'pendiente']);
 
         $this->assertSame(0, Artisan::call('migrate'));
+        // Estado que deja la 000019 (sin la 000020)
+        Artisan::call('migrate:rollback', ['--step' => 1]);
 
         // "Matemática" y "matematica" son una sola asignatura enlazada a los dos planes
         $this->assertFalse(Schema::hasColumn('asignaturas', 'plan_estudio_id'));
@@ -108,6 +113,14 @@ class PlanAsignaturasDiagramaTest extends TestCase
         $this->assertSame(['en_curso', 'pendiente'], DB::table('periodo_escolares')->orderBy('id')->pluck('estado')->all());
         $this->assertSame('Primer trimestre', DB::table('periodo_escolares')->where('id', $p1)->value('nombre_periodo'));
 
+        // Con la 000020 (22/10/2026) cada plan vuelve a tener su propia asignatura
         $this->assertSame(0, Artisan::call('migrate'));
+        $this->assertFalse(Schema::hasTable('plan_asignaturas'));
+        $materia = fn ($asignacionId) => DB::table('asignaciones')->join('asignaturas', 'asignaturas.id', '=', 'asignaciones.asignatura_id')
+            ->where('asignaciones.id', $asignacionId)->first(['asignaturas.plan_estudio_id', 'asignaturas.nombre']);
+        $this->assertSame([$basica, 'Matemática'], [(int) $materia($a1)->plan_estudio_id, $materia($a1)->nombre]);
+        $this->assertSame([$basica, 'Lenguaje'], [(int) $materia($a2)->plan_estudio_id, $materia($a2)->nombre]);
+        $this->assertSame([$media, 'Matemática'], [(int) $materia($a3)->plan_estudio_id, $materia($a3)->nombre]);
+        $this->assertSame(4, DB::table('asignaturas')->count());
     }
 }

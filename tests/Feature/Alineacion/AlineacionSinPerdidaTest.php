@@ -32,7 +32,7 @@ class AlineacionSinPerdidaTest extends TestCase
     ];
 
     /** Tablas que cambian de forma por completo; se comprueban aparte. */
-    private const REEMPLAZADAS = ['roles', 'plan_asignaturas'];
+    private const REEMPLAZADAS = ['roles'];
 
     private array $ids = [];
 
@@ -85,11 +85,8 @@ class AlineacionSinPerdidaTest extends TestCase
                         $this->assertNull($valor, 'Las fechas de matrícula (000018, 20/10/2026) quedan vacías hasta que el director las indique');
                         continue;
                     }
-                    // 19/10/2026: el año lectivo pasa a "anio"; 21/10/2026: la asignación apunta a plan_asignaturas
-                    $origen = ['anios_lectivos.anio' => 'nombre', 'asignaciones.plan_asignatura_id' => 'asignatura_id']["{$tabla}.{$columna}"] ?? $columna;
-                    if ($tabla === 'asignaciones' && $columna === 'plan_asignatura_id') {
-                        $valor = DB::table('plan_asignaturas')->where('id', $valor)->value('asignatura_id');
-                    }
+                    // 19/10/2026: el año lectivo pasa a "anio"
+                    $origen = ['anios_lectivos.anio' => 'nombre']["{$tabla}.{$columna}"] ?? $columna;
                     $anterior = $antes[$tabla][$i][$origen];
                     if ($tabla === 'anios_lectivos' && $columna === 'anio') {
                         $anterior = (int) $anterior;
@@ -311,7 +308,7 @@ class AlineacionSinPerdidaTest extends TestCase
         $this->como($director)->postJson("/api/anios-lectivos/{$this->ids['anio2026']}/activar")->assertStatus(409);
 
         // M2.3: asignaturas del plan
-        $this->como($docente)->getJson("/api/plan-asignaturas?plan_estudio_id={$this->ids['plan']}")->assertOk()->assertJsonFragment(['nombre' => 'Matemática']);
+        $this->como($docente)->getJson("/api/asignaturas?plan_estudio_id={$this->ids['plan']}")->assertOk()->assertJsonFragment(['nombre' => 'Matemática']);
 
         // M3: docentes
         $this->como($director)->getJson('/api/profesores?buscar=PROF-001')->assertOk()->assertJsonFragment(['codigo' => 'PROF-001']);
