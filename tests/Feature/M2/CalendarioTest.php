@@ -43,11 +43,11 @@ class CalendarioTest extends TestCase
         return $this->como($this->director)->postJson("/api/anios-lectivos/{$anioId}/periodos", $datos);
     }
 
-    // Agrega tres trimestres al año y devuelve sus ids en orden (nivel)
+    // Agrega tres trimestres de Parvularia y Básica (nivel 1) al año y devuelve sus ids en orden
     private function periodosDe(int $anioId): array
     {
         return array_map(
-            fn ($nivel) => $this->agregarPeriodo($anioId, ['nombre' => "Trimestre {$nivel}", 'nivel' => $nivel])->assertCreated()->json('periodo.id'),
+            fn ($n) => $this->agregarPeriodo($anioId, ['nombre' => "Trimestre {$n}", 'nivel' => 1])->assertCreated()->json('periodo.id'),
             [1, 2, 3]
         );
     }
@@ -72,30 +72,33 @@ class CalendarioTest extends TestCase
 
         $this->agregarPeriodo($id, ['nombre' => 'Primer trimestre', 'nivel' => 1])->assertCreated()
             ->assertJsonPath('periodo.nombre', 'Primer trimestre')->assertJsonPath('periodo.nivel', 1)
+            ->assertJsonPath('periodo.nivel_nombre', 'Parvularia y Educación Básica')
             ->assertJsonPath('periodo.anio_lectivo_id', $id)->assertJsonMissingPath('periodo.nombre_periodo');
 
-        // Campos obligatorios y nivel de 1 a 6
+        // Campos obligatorios; nivel académico 1 (Parvularia y Básica) o 2 (Bachillerato)
         $this->agregarPeriodo($id, [])->assertStatus(422)->assertJsonValidationErrors(['nombre', 'nivel']);
         $this->agregarPeriodo($id, ['nombre' => 'X', 'nivel' => 0])->assertStatus(422)->assertJsonValidationErrors('nivel');
-        $this->agregarPeriodo($id, ['nombre' => 'X', 'nivel' => 7])->assertStatus(422)->assertJsonValidationErrors('nivel');
+        $this->agregarPeriodo($id, ['nombre' => 'X', 'nivel' => 3])->assertStatus(422)
+            ->assertJsonPath('errors.nivel.0', 'El nivel académico debe ser 1 (Parvularia y Educación Básica) o 2 (Bachillerato).');
         $this->agregarPeriodo($id, ['nombre' => str_repeat('a', 51), 'nivel' => 2])->assertStatus(422)->assertJsonValidationErrors('nombre');
 
-        // Sin repetir nivel ni nombre (mayúsculas, tildes y espacios no cuentan) dentro del año
-        $this->agregarPeriodo($id, ['nombre' => 'Otro', 'nivel' => 1])->assertStatus(422)
-            ->assertJsonPath('errors.nivel.0', 'El año lectivo 2027 ya tiene un periodo con el nivel 1.');
-        $this->agregarPeriodo($id, ['nombre' => '  primer   TRIMESTRE ', 'nivel' => 2])->assertStatus(422)
-            ->assertJsonValidationErrors('nombre');
+        // El nombre no se repite en el mismo nivel (mayúsculas, tildes y espacios no cuentan)
+        $this->agregarPeriodo($id, ['nombre' => '  primer   TRIMESTRE ', 'nivel' => 1])->assertStatus(422)->assertJsonValidationErrors('nombre');
+        // Bachillerato tiene sus propios periodos: el mismo nombre sí se admite
+        $this->agregarPeriodo($id, ['nombre' => 'Primer trimestre', 'nivel' => 2])->assertCreated()
+            ->assertJsonPath('periodo.nivel_nombre', 'Bachillerato');
 
         // Otro año sí admite el mismo nombre y nivel
         $otro = $this->crearAnio(['anio' => 2028, 'fecha_inicio' => '2028-01-15', 'fecha_fin' => '2028-11-30'])->json('anio_lectivo.id');
         $this->agregarPeriodo($otro, ['nombre' => 'Primer trimestre', 'nivel' => 1])->assertCreated();
 
-        // Hasta seis periodos por año
-        foreach ([2, 3, 4, 5, 6] as $nivel) {
-            $this->agregarPeriodo($id, ['nombre' => "Periodo {$nivel}", 'nivel' => $nivel])->assertCreated();
+        // Hasta seis periodos de cada nivel por año
+        foreach ([2, 3, 4, 5, 6] as $n) {
+            $this->agregarPeriodo($id, ['nombre' => "Periodo {$n}", 'nivel' => 1])->assertCreated();
         }
-        $this->agregarPeriodo($id, ['nombre' => 'Extra', 'nivel' => 6])->assertStatus(409)
-            ->assertJsonPath('message', 'Un año lectivo admite como máximo 6 periodos.');
+        $this->agregarPeriodo($id, ['nombre' => 'Extra', 'nivel' => 1])->assertStatus(409)
+            ->assertJsonPath('message', 'Un año lectivo admite como máximo 6 periodos de Parvularia y Educación Básica.');
+        $this->agregarPeriodo($id, ['nombre' => 'Extra', 'nivel' => 2])->assertCreated();
     }
 
     public function test_validacion_del_anio(): void
@@ -304,7 +307,7 @@ class CalendarioTest extends TestCase
     /** El año solo se cierra con todos sus periodos cerrados. */
     private function cerrarPeriodos(int $anioId): void
     {
-        foreach (PeriodoEscolar::where('anio_lectivo_id', $anioId)->where('estado', '<>', 'cerrado')->orderBy('nivel')->pluck('id') as $periodo) {
+        foreach (PeriodoEscolar::where('anio_lectivo_id', $anioId)->where('estado', '<>', 'cerrado')->orderBy('id')->pluck('id') as $periodo) {
             if (PeriodoEscolar::find($periodo)->estado === 'pendiente') {
                 $this->cambiarEstado($periodo, 'activo')->assertOk();
             }
@@ -321,7 +324,7 @@ class CalendarioTest extends TestCase
 
         // Un periodo sin registros se elimina
         $this->como($this->director)->deleteJson("/api/periodos-escolares/{$p2}")->assertOk();
-        $this->agregarPeriodo($id, ['nombre' => 'Trimestre 2', 'nivel' => 2])->assertCreated();
+        $this->agregarPeriodo($id, ['nombre' => 'Trimestre 2', 'nivel' => 1])->assertCreated();
 
         // Con registros académicos (conducta) no se borra
         $catalogos = $this->catalogosBasicos();

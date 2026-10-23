@@ -27,6 +27,10 @@ class EstudianteController extends Controller
                 'estado' => 'nullable|in:inscrito,activo,inactivo,egresado,graduado',
                 'user_id' => 'nullable|integer',
                 'con_matricula_aprobada' => 'nullable|boolean',
+                // Filtros de la dirección por la matrícula: año lectivo, grado y sección
+                'anio_lectivo_id' => 'nullable|integer',
+                'grado_id' => 'nullable|integer',
+                'seccion_id' => 'nullable|integer',
             ]);
 
             return response()->json([

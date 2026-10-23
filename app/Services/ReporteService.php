@@ -97,8 +97,8 @@ class ReporteService
     private function periodo(Seccion $seccion, $periodoId): PeriodoEscolar
     {
         $periodo = PeriodoEscolar::find($periodoId);
-        if (! $periodo || (int) $periodo->anio_lectivo_id !== (int) $seccion->anio_lectivo_id) {
-            throw ValidationException::withMessages(['periodo_escolar_id' => 'El periodo no pertenece al año lectivo de la sección.']);
+        if (! $periodo || ! $periodo->esDeLaSeccion($seccion)) {
+            throw ValidationException::withMessages(['periodo_escolar_id' => 'El periodo no pertenece al año lectivo ni al nivel de la sección.']);
         }
 
         return $periodo;

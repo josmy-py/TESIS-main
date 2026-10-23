@@ -42,7 +42,7 @@ trait DatosAcademicos
         $this->anio = AnioLectivo::create(['anio' => '2026', 'fecha_inicio' => '2026-01-15', 'fecha_fin' => '2026-11-30']);
         $this->anio->forceFill(['estado' => AnioLectivo::ACTIVO])->save();
         foreach (['Primer trimestre', 'Segundo trimestre'] as $i => $nombre) {
-            $this->periodos[] = PeriodoEscolar::create(['nombre' => $nombre, 'nivel' => $i + 1, 'anio_lectivo_id' => $this->anio->id]);
+            $this->periodos[] = PeriodoEscolar::create(['nombre' => $nombre, 'nivel' => 1, 'anio_lectivo_id' => $this->anio->id]);
         }
 
         [$this->cuentaDocente, $docente] = $this->docenteNuevo(1);

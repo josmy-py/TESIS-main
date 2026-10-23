@@ -27,7 +27,7 @@ class MigracionM6Test extends TestCase
     private User $encargado;
 
     /** Migraciones posteriores a 000011 (usuarios/roles y profesores como el diagrama, hasta 000020). */
-    private const POSTERIORES = 9;
+    private const POSTERIORES = 10;
 
     protected function setUp(): void
     {

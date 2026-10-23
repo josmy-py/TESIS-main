@@ -14,7 +14,7 @@ use Illuminate\Validation\ValidationException;
 /**
  * Años lectivos y periodos escolares (M2.2), con las columnas del diagrama ER:
  * anios_lectivos(anio, fecha_inicio, fecha_fin, estado activo/inactivo/cierre)
- * y periodo_escolares(nombre, nivel = número del periodo, anio_lectivo_id,
+ * y periodo_escolares(nombre, nivel académico, anio_lectivo_id,
  * estado pendiente/activo/cerrado).
  * El año se crea sin periodos; el director los agrega uno a uno y administra
  * su estado para cerrar cada trimestre o periodo (19/10/2026).
@@ -24,6 +24,7 @@ use Illuminate\Validation\ValidationException;
  */
 class CalendarioService
 {
+    // Máximo de periodos de cada nivel académico en un año lectivo
     public const MAX_PERIODOS = 6;
 
     // --- Consultas ---
@@ -129,7 +130,8 @@ class CalendarioService
             if ($anio->estado !== AnioLectivo::ACTIVO) {
                 throw new \DomainException('Solo puede cerrarse el año lectivo activo.');
             }
-            $abiertos = $anio->periodos()->where('estado', '<>', PeriodoEscolar::CERRADO)->orderBy('nivel')->pluck('nombre');
+            $abiertos = $anio->periodos()->where('estado', '<>', PeriodoEscolar::CERRADO)->get()
+                ->map(fn (PeriodoEscolar $p) => "{$p->nombre} ({$p->nivel_nombre})");
             if ($abiertos->isNotEmpty()) {
                 throw new \DomainException('Cierre todos los periodos antes de cerrar el año lectivo. Falta: '.$abiertos->implode(', ').'.');
             }
@@ -194,7 +196,11 @@ class CalendarioService
 
     // --- Periodos ---
 
-    /** Datos: nombre y nivel (número del periodo dentro del año, de 1 a MAX_PERIODOS). */
+    /**
+     * Datos: nombre y nivel académico (1 = Parvularia y Educación Básica,
+     * 2 = Bachillerato; pedido de Josmy del 23/10/2026). Cada nivel tiene sus
+     * propios periodos: el nombre no se repite dentro del mismo nivel y año.
+     */
     public function agregarPeriodo($anioId, array $datos): PeriodoEscolar
     {
         return DB::transaction(function () use ($anioId, $datos) {
@@ -203,13 +209,10 @@ class CalendarioService
             if ($anio->estado === AnioLectivo::CIERRE) {
                 throw new \DomainException('El año lectivo está cerrado y no admite periodos nuevos.');
             }
-            if ($anio->periodos()->count() >= self::MAX_PERIODOS) {
-                throw new \DomainException('Un año lectivo admite como máximo '.self::MAX_PERIODOS.' periodos.');
+            if ($anio->periodos()->where('nivel', $datos['nivel'])->count() >= self::MAX_PERIODOS) {
+                throw new \DomainException('Un año lectivo admite como máximo '.self::MAX_PERIODOS.' periodos de '.PeriodoEscolar::NIVELES[$datos['nivel']].'.');
             }
-            if ($anio->periodos()->where('nivel', $datos['nivel'])->exists()) {
-                throw ValidationException::withMessages(['nivel' => "El año lectivo {$anio->anio} ya tiene un periodo con el nivel {$datos['nivel']}."]);
-            }
-            $this->asegurarNombrePeriodoLibre($anio, $datos['nombre']);
+            $this->asegurarNombrePeriodoLibre($anio, $datos['nombre'], (int) $datos['nivel']);
 
             return PeriodoEscolar::create([
                 'nombre' => $datos['nombre'],
@@ -228,9 +231,19 @@ class CalendarioService
             if ($anio->estado === AnioLectivo::CIERRE) {
                 throw new \DomainException('El año lectivo está cerrado y no puede modificarse.');
             }
-            $this->asegurarNombrePeriodoLibre($anio, $datos['nombre'], $periodo->id);
+            $nivel = (int) ($datos['nivel'] ?? $periodo->nivel);
+            if ($nivel !== (int) $periodo->nivel) {
+                // Cambiar el nivel mueve el periodo a otras secciones: solo sin registros y pendiente
+                if ($periodo->estado !== PeriodoEscolar::PENDIENTE || $periodo->tieneRegistrosAcademicos()) {
+                    throw new \DomainException('El nivel solo se cambia en un periodo pendiente y sin notas ni conducta registradas.');
+                }
+                if ($anio->periodos()->where('nivel', $nivel)->count() >= self::MAX_PERIODOS) {
+                    throw new \DomainException('Un año lectivo admite como máximo '.self::MAX_PERIODOS.' periodos de '.PeriodoEscolar::NIVELES[$nivel].'.');
+                }
+            }
+            $this->asegurarNombrePeriodoLibre($anio, $datos['nombre'], $nivel, $periodo->id);
 
-            $periodo->fill(['nombre' => $datos['nombre']]);
+            $periodo->fill(['nombre' => $datos['nombre'], 'nivel' => $nivel]);
             $periodo->save();
 
             return $periodo;
@@ -240,7 +253,7 @@ class CalendarioService
     /**
      * Estado del periodo (pedido de Josmy, 19/10/2026):
      * - activo: desde pendiente, o para reabrir uno cerrado. Solo con el año
-     *   activo y sin otro periodo activo en ese año.
+     *   activo y sin otro periodo activo de su nivel académico en ese año.
      * - cerrado: desde activo; cierra el trimestre o periodo (ya no se
      *   registran notas ni conducta en él).
      * - pendiente: desde activo, si se activó por error.
@@ -258,7 +271,7 @@ class CalendarioService
                 throw new \DomainException("El año lectivo {$anio->anio} no está activo: no se puede cambiar el estado de sus periodos.");
             }
             if ($estado === PeriodoEscolar::ACTIVO) {
-                $otro = $anio->periodos()->where('estado', PeriodoEscolar::ACTIVO)->whereKeyNot($periodo->id)->first();
+                $otro = $anio->periodos()->where('nivel', $periodo->nivel)->where('estado', PeriodoEscolar::ACTIVO)->whereKeyNot($periodo->id)->first();
                 if ($otro) {
                     throw new \DomainException("{$otro->nombre} sigue activo: ciérrelo antes de iniciar otro periodo.");
                 }
@@ -409,18 +422,20 @@ class CalendarioService
         };
     }
 
-    // Sin distinguir mayúsculas, tildes ni espacios repetidos
-    private function asegurarNombrePeriodoLibre(AnioLectivo $anio, string $nombre, ?int $excepto = null): void
+    // Sin distinguir mayúsculas, tildes ni espacios repetidos, dentro del mismo nivel
+    private function asegurarNombrePeriodoLibre(AnioLectivo $anio, string $nombre, int $nivel, ?int $excepto = null): void
     {
-        if (NombreUnico::ocupado($anio->periodos()->when($excepto, fn ($q) => $q->where('id', '<>', $excepto)), 'nombre', $nombre)) {
-            throw ValidationException::withMessages(['nombre' => "El año lectivo {$anio->anio} ya tiene un periodo llamado «{$nombre}»."]);
+        $periodos = $anio->periodos()->where('nivel', $nivel)->when($excepto, fn ($q) => $q->where('id', '<>', $excepto));
+        if (NombreUnico::ocupado($periodos, 'nombre', $nombre)) {
+            $nivelTexto = PeriodoEscolar::NIVELES[$nivel] ?? "nivel {$nivel}";
+            throw ValidationException::withMessages(['nombre' => "El año lectivo {$anio->anio} ya tiene un periodo de {$nivelTexto} llamado «{$nombre}»."]);
         }
     }
 
     private function anioDelPeriodo(PeriodoEscolar $periodo): AnioLectivo
     {
         if ($periodo->anio_lectivo_id === null || $periodo->nivel === null) {
-            throw new \DomainException('Este periodo es anterior a M2.2 y no tiene año lectivo ni número. Revíselo con el diagnóstico antes de usarlo.');
+            throw new \DomainException('Este periodo es anterior a M2.2 y no tiene año lectivo ni nivel. Revíselo con el diagnóstico antes de usarlo.');
         }
 
         return AnioLectivo::lockForUpdate()->findOrFail($periodo->anio_lectivo_id);

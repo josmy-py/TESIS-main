@@ -250,12 +250,11 @@ class DatosAcademicosPruebaSeeder extends Seeder
 
         $libreta = app(LibretaService::class);
         foreach ($secciones as $seccion) {
-            $periodos = PeriodoEscolar::with('anioLectivo')->where('anio_lectivo_id', $seccion->anio_lectivo_id)
-                ->orderBy('nivel')->get();
+            $periodos = PeriodoEscolar::deLaSeccion($seccion)->with('anioLectivo')->get();
             $asignaciones = Asignacion::where('seccion_id', $seccion->id)->get();
             $estudiantesDeSeccion = $matriculas[$seccion->id] ?? [];
 
-            foreach ($periodos as $periodo) {
+            foreach ($periodos->values() as $numeroPeriodo => $periodo) {
                 // Regla de M7/M8: no se registran notas ni conducta en un periodo
                 // cerrado ni en un año lectivo que no está activo
                 if (! $periodo->permiteRegistros()) {
@@ -293,8 +292,8 @@ class DatosAcademicosPruebaSeeder extends Seeder
                     foreach ($estudiantesDeSeccion as [$matricula, $indice]) {
                         $promedio = 0.0;
                         foreach ($evaluaciones as $evalIndice => $evaluacion) {
-                            $nota = $indice % 4 === 0 ? 5.5 + (($periodo->nivel + $evalIndice) % 3) / 10
-                                : 7.5 + (($indice + $periodo->nivel + $evalIndice) % 18) / 10;
+                            $nota = $indice % 4 === 0 ? 5.5 + (($numeroPeriodo + 1 + $evalIndice) % 3) / 10
+                                : 7.5 + (($indice + $numeroPeriodo + 1 + $evalIndice) % 18) / 10;
                             $calificacion = Calificacion::firstOrCreate([
                                 'matricula_id' => $matricula->id,
                                 'evaluacion_id' => $evaluacion->id,

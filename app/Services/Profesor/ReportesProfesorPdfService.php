@@ -88,8 +88,8 @@ class ReportesProfesorPdfService
         }
 
         $periodo = PeriodoEscolar::find($datos['periodo_escolar_id']);
-        if (! $periodo || (int) $periodo->anio_lectivo_id !== (int) $seccion->anio_lectivo_id) {
-            throw ValidationException::withMessages(['periodo_escolar_id' => 'El período no pertenece al año lectivo de la sección.']);
+        if (! $periodo || ! $periodo->esDeLaSeccion($seccion)) {
+            throw ValidationException::withMessages(['periodo_escolar_id' => 'El período no pertenece al año lectivo ni al nivel de la sección.']);
         }
 
         return [
@@ -156,8 +156,8 @@ class ReportesProfesorPdfService
             throw ValidationException::withMessages(['seccion_id' => 'La sección no pertenece al grado seleccionado.']);
         }
         $periodo = PeriodoEscolar::find($datos['periodo_escolar_id']);
-        if (! $periodo || (int) $periodo->anio_lectivo_id !== (int) $seccion->anio_lectivo_id) {
-            throw ValidationException::withMessages(['periodo_escolar_id' => 'El período no pertenece al año lectivo de la sección.']);
+        if (! $periodo || ! $periodo->esDeLaSeccion($seccion)) {
+            throw ValidationException::withMessages(['periodo_escolar_id' => 'El período no pertenece al año lectivo ni al nivel de la sección.']);
         }
 
         $boletas = Boleta::where('asignacion_id', $asignacion->id)->where('periodo_escolar_id', $periodo->id)->pluck('promedio', 'matricula_id');
@@ -195,8 +195,8 @@ class ReportesProfesorPdfService
             throw ValidationException::withMessages(['seccion_id' => 'La sección no pertenece al grado seleccionado.']);
         }
         $periodo = PeriodoEscolar::find($datos['periodo_escolar_id']);
-        if (! $periodo || (int) $periodo->anio_lectivo_id !== (int) $seccion->anio_lectivo_id) {
-            throw ValidationException::withMessages(['periodo_escolar_id' => 'El período no pertenece al año lectivo de la sección.']);
+        if (! $periodo || ! $periodo->esDeLaSeccion($seccion)) {
+            throw ValidationException::withMessages(['periodo_escolar_id' => 'El período no pertenece al año lectivo ni al nivel de la sección.']);
         }
         $matricula = $this->conducta->matriculas($seccion)->firstWhere('id', (int) $datos['matricula_id']);
         if (! $matricula) {

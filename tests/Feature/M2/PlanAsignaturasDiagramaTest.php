@@ -81,7 +81,7 @@ class PlanAsignaturasDiagramaTest extends TestCase
 
         $this->assertSame(0, Artisan::call('migrate'));
         // Estado que deja la 000019 (sin la 000020)
-        Artisan::call('migrate:rollback', ['--step' => 1]);
+        Artisan::call('migrate:rollback', ['--step' => 2]);
 
         // "Matemática" y "matematica" son una sola asignatura enlazada a los dos planes
         $this->assertFalse(Schema::hasColumn('asignaturas', 'plan_estudio_id'));

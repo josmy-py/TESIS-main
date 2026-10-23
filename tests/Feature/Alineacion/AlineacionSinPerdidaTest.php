@@ -108,6 +108,10 @@ class AlineacionSinPerdidaTest extends TestCase
                     }
                     if ($tabla === 'periodo_escolares' && $columna === 'nivel') {
                         $anterior = $antes[$tabla][$i]['numero'] ?? $anterior;
+                        // 23/10/2026 (000021): nivel es el nivel académico; los periodos de un año quedan en 1
+                        if ($fila['anio_lectivo_id'] !== null) {
+                            $anterior = 1;
+                        }
                     }
                     $this->assertSame($this->normal($anterior), $this->normal($valor), "{$tabla}.{$columna} (fila {$i}) cambió");
                 }

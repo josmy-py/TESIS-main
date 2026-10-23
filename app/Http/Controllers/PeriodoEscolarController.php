@@ -31,9 +31,13 @@ class PeriodoEscolarController extends Controller
 
             $datos = $request->validate([
                 'nombre' => 'required|string|max:50',
+                // Nivel académico: opcional; solo cambia en un periodo pendiente sin registros
+                'nivel' => ['sometimes', 'integer', Rule::in(array_keys(PeriodoEscolar::NIVELES))],
             ], [
                 'nombre.required' => 'El nombre del periodo es obligatorio.',
                 'nombre.max' => 'El nombre del periodo no debe exceder los 50 caracteres.',
+                'nivel.integer' => 'El nivel académico no es válido.',
+                'nivel.in' => 'El nivel académico debe ser 1 (Parvularia y Educación Básica) o 2 (Bachillerato).',
             ]);
 
             return response()->json([

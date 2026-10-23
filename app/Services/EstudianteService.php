@@ -30,6 +30,20 @@ class EstudianteService
     /** Filtros: q (nombre o NIE), estado, con_matricula_aprobada y user_id (solo director). */
     public function listar(array $filtros = [], ?int $propietarioId = null)
     {
+        // Año lectivo, grado y sección (pedido de Josmy, 23/10/2026): estudiantes con
+        // una matrícula que cumpla los tres filtros (aprobada si así se pide)
+        $porMatricula = array_filter([
+            'anio_lectivo_id' => $filtros['anio_lectivo_id'] ?? null,
+            'grado_id' => $filtros['grado_id'] ?? null,
+            'seccion_id' => $filtros['seccion_id'] ?? null,
+        ]);
+        $deLaMatricula = function ($m) use ($porMatricula, $filtros) {
+            $m->when(! empty($filtros['con_matricula_aprobada']), fn ($q) => $q->where('matriculas.estado', 'aprobado'))
+                ->when($porMatricula['anio_lectivo_id'] ?? null, fn ($q, $v) => $q->where('matriculas.anio_lectivo_id', $v))
+                ->when($porMatricula['seccion_id'] ?? null, fn ($q, $v) => $q->where('matriculas.seccion_id', $v))
+                ->when($porMatricula['grado_id'] ?? null, fn ($q, $v) => $q->whereHas('seccion', fn ($s) => $s->where('grado_id', $v)));
+        };
+
         return Estudiante::query()
             ->when($propietarioId, fn ($q) => $q->where('user_id', $propietarioId))
             ->when(! $propietarioId && ! empty($filtros['user_id']), fn ($q) => $q->where('user_id', $filtros['user_id']))
@@ -48,6 +62,14 @@ class EstudianteService
                 'ultimaMatricula.seccion:id,nombre,grado_id',
                 'ultimaMatricula.seccion.grado:id,nombre',
             ])
+            ->when($porMatricula, fn ($q) => $q->whereHas('matriculas', $deLaMatricula)
+                // La matrícula que cumple los filtros (la más reciente) para mostrar su año, grado y sección
+                ->with([
+                    'matriculas' => fn ($m) => $deLaMatricula($m->select('matriculas.id', 'matriculas.estudiante_id', 'matriculas.estado', 'matriculas.anio_lectivo_id', 'matriculas.seccion_id')->orderByDesc('matriculas.id')),
+                    'matriculas.anioLectivo:id,anio',
+                    'matriculas.seccion:id,nombre,grado_id',
+                    'matriculas.seccion.grado:id,nombre',
+                ]))
             ->when(! $propietarioId, fn ($q) => $q->with('user:id,email'))
             ->withCount(['padres', 'matriculas'])
             // Registrado en la institución (con matrícula aprobada): solo se matricula por Reingreso

@@ -15,6 +15,15 @@ class PeriodoEscolar extends Model
     public const CERRADO = 'cerrado';
     public const ESTADOS = [self::PENDIENTE, self::ACTIVO, self::CERRADO];
 
+    // nivel (pedido de Josmy, 23/10/2026; tesis: "formato de nivel escolar"):
+    // nivel académico al que pertenece el periodo, no su número
+    public const NIVEL_BASICA = 1;
+    public const NIVEL_BACHILLERATO = 2;
+    public const NIVELES = [
+        self::NIVEL_BASICA => 'Parvularia y Educación Básica',
+        self::NIVEL_BACHILLERATO => 'Bachillerato',
+    ];
+
     // Columnas del diagrama: nombre y nivel (más el año lectivo al que
     // pertenece y el estado). El estado solo cambia con CalendarioService
     protected $fillable = [
@@ -23,14 +32,51 @@ class PeriodoEscolar extends Model
         'anio_lectivo_id',
     ];
 
+    protected $appends = ['nivel_nombre'];
+
     protected $attributes = [
         'estado' => self::PENDIENTE,
     ];
 
-    // nivel: número del periodo dentro del año lectivo (1, 2, 3...)
+    // nivel: 1 = Parvularia y Educación Básica, 2 = Bachillerato
     protected $casts = [
         'nivel' => 'integer',
     ];
+
+    public function getNivelNombreAttribute(): ?string
+    {
+        return self::NIVELES[$this->nivel] ?? null;
+    }
+
+    /** Nivel académico de un grado según su orden del catálogo (Parvularia y Básica hasta noveno grado). */
+    public static function nivelDeGrado(?int $orden): ?int
+    {
+        return $orden === null ? null : ($orden <= 9 ? self::NIVEL_BASICA : self::NIVEL_BACHILLERATO);
+    }
+
+    /** Nivel académico de una sección (por su grado). */
+    public static function nivelDeSeccion(?Seccion $seccion): ?int
+    {
+        return self::nivelDeGrado($seccion?->grado?->orden);
+    }
+
+    /** El periodo es del año lectivo de la sección y de su nivel académico. */
+    public function esDeLaSeccion(?Seccion $seccion): bool
+    {
+        $nivel = self::nivelDeSeccion($seccion);
+
+        return $seccion !== null
+            && (int) $this->anio_lectivo_id === (int) $seccion->anio_lectivo_id
+            && ($nivel === null || (int) $this->nivel === $nivel);
+    }
+
+    /** Periodos de un año lectivo para una sección: solo los de su nivel académico. */
+    public static function deLaSeccion(?Seccion $seccion)
+    {
+        return static::where('anio_lectivo_id', $seccion?->anio_lectivo_id ?? 0)
+            ->when(self::nivelDeSeccion($seccion), fn ($q, $nivel) => $q->where('nivel', $nivel))
+            ->orderBy('nivel')->orderBy('id');
+    }
 
     public function anioLectivo()
     {

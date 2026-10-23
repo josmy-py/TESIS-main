@@ -108,7 +108,7 @@ class LibretaService
     {
         $seccion = $matricula->seccion;
         $asignaciones = $seccion ? Asignacion::where('seccion_id', $seccion->id)->pluck('id') : collect();
-        $periodos = $seccion ? PeriodoEscolar::where('anio_lectivo_id', $seccion->anio_lectivo_id)->pluck('id') : collect();
+        $periodos = $seccion ? PeriodoEscolar::deLaSeccion($seccion)->pluck('id') : collect();
         $boletas = Boleta::where('matricula_id', $matricula->id)
             ->whereIn('asignacion_id', $asignaciones)->whereIn('periodo_escolar_id', $periodos)->get();
 
@@ -172,8 +172,8 @@ class LibretaService
     private function periodoDeLaSeccion(Asignacion $asignacion, $periodoId): PeriodoEscolar
     {
         $periodo = PeriodoEscolar::with('anioLectivo')->find($periodoId);
-        if (! $periodo || (int) $periodo->anio_lectivo_id !== (int) $asignacion->seccion?->anio_lectivo_id) {
-            throw ValidationException::withMessages(['periodo_escolar_id' => 'El periodo no pertenece al año lectivo de la sección.']);
+        if (! $periodo || ! $periodo->esDeLaSeccion($asignacion->seccion)) {
+            throw ValidationException::withMessages(['periodo_escolar_id' => 'El periodo no pertenece al año lectivo ni al nivel de la sección.']);
         }
 
         return $periodo;

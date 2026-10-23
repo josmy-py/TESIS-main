@@ -40,7 +40,7 @@ class ConductaService
     /** Estudiantes de la sección con su conducta del periodo (o null). */
     public function listar(Seccion $seccion, $periodoId = null): array
     {
-        $periodos = PeriodoEscolar::where('anio_lectivo_id', $seccion->anio_lectivo_id)->orderBy('nivel')->get(['id', 'nombre', 'nivel', 'anio_lectivo_id']);
+        $periodos = PeriodoEscolar::deLaSeccion($seccion)->get(['id', 'nombre', 'nivel', 'anio_lectivo_id']);
         $periodo = $periodoId ? $this->periodoDeLaSeccion($seccion, $periodoId) : $periodos->first()?->load('anioLectivo');
 
         $conductas = $periodo
@@ -116,8 +116,8 @@ class ConductaService
     private function periodoDeLaSeccion(Seccion $seccion, $periodoId): PeriodoEscolar
     {
         $periodo = PeriodoEscolar::with('anioLectivo')->find($periodoId);
-        if (! $periodo || (int) $periodo->anio_lectivo_id !== (int) $seccion->anio_lectivo_id) {
-            throw ValidationException::withMessages(['periodo_escolar_id' => 'El periodo no pertenece al año lectivo de la sección.']);
+        if (! $periodo || ! $periodo->esDeLaSeccion($seccion)) {
+            throw ValidationException::withMessages(['periodo_escolar_id' => 'El periodo no pertenece al año lectivo ni al nivel de la sección.']);
         }
 
         return $periodo;

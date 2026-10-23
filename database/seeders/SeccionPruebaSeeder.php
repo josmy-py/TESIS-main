@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\AnioLectivo;
 use App\Models\Grado;
+use App\Models\PeriodoEscolar;
 use App\Models\Seccion;
 use App\Models\User;
 use App\Services\CalendarioService;
@@ -82,8 +83,11 @@ class SeccionPruebaSeeder extends Seeder
             'inicio_matricula' => min(AnioLectivo::hoy()->toDateString(), $fin),
             'fin_matricula' => $fin,
         ]);
-        foreach ([1, 2, 3] as $nivel) {
-            $calendario->agregarPeriodo($anio->id, ['nombre' => CalendarioService::nombrePredeterminado($nivel), 'nivel' => $nivel]);
+        // Tres trimestres para cada nivel académico (1 = Parvularia y Básica, 2 = Bachillerato)
+        foreach (array_keys(PeriodoEscolar::NIVELES) as $nivel) {
+            foreach ([1, 2, 3] as $numero) {
+                $calendario->agregarPeriodo($anio->id, ['nombre' => CalendarioService::nombrePredeterminado($numero), 'nivel' => $nivel]);
+            }
         }
 
         return $anio->fresh('periodos');

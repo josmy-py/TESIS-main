@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\PeriodoEscolar;
 use App\Services\CalendarioService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
@@ -34,9 +35,9 @@ class AnioLectivoController extends Controller
         'fin_matricula.before_or_equal' => 'La matrícula debe terminar a más tardar en la fecha de fin del año lectivo.',
         'nombre.required' => 'El nombre del periodo es obligatorio.',
         'nombre.max' => 'El nombre del periodo no debe exceder los 50 caracteres.',
-        'nivel.required' => 'El nivel del periodo es obligatorio.',
-        'nivel.integer' => 'El nivel debe ser un número entero.',
-        'nivel.between' => 'El nivel debe estar entre 1 y '.CalendarioService::MAX_PERIODOS.'.',
+        'nivel.required' => 'Seleccione el nivel académico del periodo.',
+        'nivel.integer' => 'El nivel académico no es válido.',
+        'nivel.in' => 'El nivel académico debe ser 1 (Parvularia y Educación Básica) o 2 (Bachillerato).',
     ];
 
     // Periodo de matrícula (pedido de Josmy, 20/10/2026): puede ser antes del inicio del año, pero termina a más tardar con el año
@@ -143,7 +144,7 @@ class AnioLectivoController extends Controller
 
             $datos = $request->validate([
                 'nombre' => 'required|string|max:50',
-                'nivel' => 'required|integer|between:1,'.CalendarioService::MAX_PERIODOS,
+                'nivel' => ['required', 'integer', Rule::in(array_keys(PeriodoEscolar::NIVELES))],
             ], self::MENSAJES);
 
             return response()->json([

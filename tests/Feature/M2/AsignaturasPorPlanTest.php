@@ -37,7 +37,7 @@ class AsignaturasPorPlanTest extends TestCase
     public function test_quita_plan_asignaturas_sin_perder_datos_y_se_puede_revertir(): void
     {
         // Estado anterior: el de la migración 000019
-        Artisan::call('migrate:rollback', ['--step' => 1]);
+        Artisan::call('migrate:rollback', ['--step' => 2]);
         $this->assertTrue(Schema::hasTable('plan_asignaturas'));
 
         $plan = fn ($nombre) => DB::table('plan_estudios')->insertGetId([
@@ -94,7 +94,7 @@ class AsignaturasPorPlanTest extends TestCase
         $this->assertCount(3, $respaldo['plan_asignaturas']);
 
         // Revertir devuelve plan_asignaturas, el catálogo y las asignaciones como estaban
-        Artisan::call('migrate:rollback', ['--step' => 1]);
+        Artisan::call('migrate:rollback', ['--step' => 2]);
         $this->assertSame(
             [[$matematica, 'Matemática'], [$lenguaje, 'Lenguaje'], [$ingles, 'Inglés']],
             DB::table('asignaturas')->orderBy('id')->get()->map(fn ($f) => [(int) $f->id, $f->nombre])->all()

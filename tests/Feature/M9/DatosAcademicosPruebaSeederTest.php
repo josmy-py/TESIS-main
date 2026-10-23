@@ -59,7 +59,8 @@ class DatosAcademicosPruebaSeederTest extends TestCase
 
         $aprobada = $this->deMuestra()->where('estado', 'aprobado')->first();
         $asignaciones = Asignacion::where('seccion_id', $aprobada->seccion_id)->count();
-        $periodos = PeriodoEscolar::where('anio_lectivo_id', $aprobada->anio_lectivo_id)->count();
+        // Periodos del nivel académico de su sección
+        $periodos = PeriodoEscolar::deLaSeccion($aprobada->seccion)->count();
 
         // Las 4 materias del pensum de prueba, cada una por AsignacionService
         $this->assertSame(4, $asignaciones);

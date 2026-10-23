@@ -126,7 +126,7 @@ class ConsultaAcademicaService
             'resultados' => $matriculas->map(fn (Matricula $m) => [
                 'matricula_id' => $m->id,
                 'nota_final' => $finales->get($m->id)?->only(['promedio_anual', 'estado']),
-                'conducta' => ($conductas[$m->id] ?? collect())->sortBy('periodo.nivel')->map(fn ($c) => [
+                'conducta' => ($conductas[$m->id] ?? collect())->sortBy('periodo_escolar_id')->map(fn ($c) => [
                     'periodo' => $c->periodo?->nombre, 'descripcion' => $c->descripcion, 'valoracion' => $c->valoracion,
                 ])->values(),
             ])->values(),
@@ -163,8 +163,7 @@ class ConsultaAcademicaService
 
     private function periodos(Matricula $matricula): Collection
     {
-        return PeriodoEscolar::where('anio_lectivo_id', $matricula->seccion?->anio_lectivo_id ?? 0)
-            ->orderBy('nivel')->get(['id', 'nombre', 'nivel']);
+        return PeriodoEscolar::deLaSeccion($matricula->seccion)->get(['id', 'nombre', 'nivel']);
     }
 
     private function notaFinal(Matricula $matricula): ?array

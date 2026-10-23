@@ -45,7 +45,7 @@ class AnioLectivo extends Model
 
     public function periodos()
     {
-        return $this->hasMany(PeriodoEscolar::class)->orderBy('nivel');
+        return $this->hasMany(PeriodoEscolar::class)->orderBy('nivel')->orderBy('id');
     }
 
     public function secciones()
